@@ -56,6 +56,8 @@ Add the scheme to the existing `<httpCompression>` element (don't replace the wr
 
 **Caveat on `staticCompressionLevel="10"`**: even at level 10, brotli encoding cost is high. A cache-busting query string (`?ver=1234567890`) or a non-cacheable response can pin a worker thread on encoding for tens or hundreds of milliseconds per request. Under attack-grade load this is a CPU-exhaustion vector. Either ensure `<httpCompression cacheControlHeader="..." />` is set so encoded responses are cached for repeated requests, or lower this to 7-8 if cache-miss ratios are non-trivial.
 
+**If you see truncated `Content-Encoding: br` responses in production** (Chrome falls back to identity, but the browser logs `net::ERR_CONTENT_DECODING_FAILED` first): `BrotliEncoderCompressStream` returned `BROTLI_FALSE` to the plugin and the plugin reported `E_FAIL` to IIS mid-stream. The most common cause at high quality levels is the encoder buffering more than IIS's per-call output buffer can drain in one pass. Drop `staticCompressionLevel` to 9, then 7, until it stops. The plugin doesn't differentiate "needs more output buffer" from "real error" — both surface as `E_FAIL`; lowering the level reduces the encoder's internal buffering pressure.
+
 **Scheme registration is server-wide.** All sites with `urlCompression doStaticCompression="true"` become eligible for brotli. To limit to specific sites, use per-site `urlCompression` toggles in their respective `web.config`.
 
 ## Verification after deploy
