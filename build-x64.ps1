@@ -117,6 +117,6 @@ Copy-Item -Force $built -Destination (Join-Path $outDir 'brotli.dll')
 
 $info = Get-Item (Join-Path $outDir 'brotli.dll')
 Write-Host ""
-Write-Host "Built: $($info.FullName)" -ForegroundColor Green
-Write-Host "Size:  $($info.Length) bytes"
-Write-Host "Built: $($info.LastWriteTime)"
+Write-Host "Built:    $($info.FullName)" -ForegroundColor Green
+Write-Host "Size:     $($info.Length) bytes"
+Write-Host "Modified: $($info.LastWriteTime)"
