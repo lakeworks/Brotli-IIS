@@ -98,17 +98,27 @@ try {
     # rather than the caller's cwd.
     Push-Location $repoRoot
     try {
-        # The brotli-iis overlay port (build/vcpkg/ports/brotli-iis/portfile.cmake)
-        # copies the plugin sources from ${REPO_ROOT}/src into vcpkg's per-build
-        # source path. vcpkg's installed-package metadata only tracks the port
-        # files themselves (portfile.cmake + vcpkg.json), not the external
-        # sources. So when an already-installed brotli-iis exists, `vcpkg
-        # install` short-circuits as "already installed" — even after a local
-        # edit to src/brotli.c or an upstream pull that changed it. The post-
-        # build copy step then ships a stale brotli.dll from the prior build.
-        # `vcpkg remove` forces a clean re-install. Squelch the "package not
-        # installed" exit on first build.
-        & $vcpkgExe remove "brotli-iis:win-x64-avx2" "@$responseFile" 2>&1 | Out-Null
+        # vcpkg "already installed" short-circuit, two layers:
+        #
+        # (a) The brotli-iis overlay port (build/vcpkg/ports/brotli-iis/
+        #     portfile.cmake) copies plugin sources from ${REPO_ROOT}/src into
+        #     the per-build source path. vcpkg's installed-package metadata
+        #     only hashes the port files (portfile.cmake + vcpkg.json), not
+        #     the external sources. A local edit to src/brotli.c won't
+        #     invalidate the installed package — `vcpkg install` short-
+        #     circuits and the post-build copy ships a stale DLL.
+        #
+        # (b) The brotli library dependency itself (vcpkg/ports/brotli/) is
+        #     installed alongside brotli-iis under the same triplet root.
+        #     After a vcpkg submodule advance that updates brotli's port
+        #     (the documented update flow in CLAUDE.md), removing only
+        #     brotli-iis leaves the *old* brotli static lib in the install
+        #     tree — vcpkg considers brotli satisfied and the rebuilt
+        #     plugin DLL still links against the prior brotli release.
+        #
+        # Remove both before install. Squelch the "package not installed"
+        # exit on first build.
+        & $vcpkgExe remove "brotli-iis:win-x64-avx2" "brotli:win-x64-avx2" "@$responseFile" 2>&1 | Out-Null
         $LASTEXITCODE = 0  # `remove` of a non-installed package is fine
 
         & $vcpkgExe install "brotli-iis:win-x64-avx2" "@$responseFile"
