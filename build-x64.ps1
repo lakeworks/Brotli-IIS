@@ -30,10 +30,14 @@ if (-not (Test-Path (Join-Path $vcpkgRoot 'bootstrap-vcpkg.bat'))) {
 
 Write-Host "[1/5] Bootstrapping vcpkg..." -ForegroundColor Cyan
 $vcpkgExe = Join-Path $vcpkgRoot 'vcpkg.exe'
-if (-not (Test-Path $vcpkgExe)) {
-    & (Join-Path $vcpkgRoot 'bootstrap-vcpkg.bat') -disableMetrics
-    if ($LASTEXITCODE -ne 0) { throw "vcpkg bootstrap failed" }
-}
+# Always re-bootstrap. bootstrap-vcpkg.bat is idempotent — it checks the
+# embedded toolversion against the existing vcpkg.exe and only re-downloads
+# when the submodule has been advanced past what the current binary supports.
+# Skipping bootstrap when vcpkg.exe is merely *present* (the previous guard)
+# left an old vcpkg-tool binary running against newer ports/scripts after a
+# `git submodule update` — the documented update path in CLAUDE.md.
+& (Join-Path $vcpkgRoot 'bootstrap-vcpkg.bat') -disableMetrics
+if ($LASTEXITCODE -ne 0) { throw "vcpkg bootstrap failed" }
 
 Write-Host "[2/5] Preparing AVX2 overlay triplet..." -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path $overlayDir | Out-Null
