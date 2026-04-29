@@ -82,4 +82,11 @@ Then re-test via CDN to verify the Bunny zstd bug behavior.
 
 ## Upstream relationship
 
-We track upstream `master`. No local source modifications — only the `build-x64.ps1` script and this CLAUDE.md are local additions. Run `git pull origin master` to update; build script remains in working tree (not committed upstream).
+We track upstream `master` to stay current with brotli library security updates and supply-chain hygiene. **No local source modifications** — only the `build-x64.ps1` script and this CLAUDE.md are local additions — so that `git pull origin master` is always a clean fast-forward and any future contribution back to upstream stays trivially separable from our build/doc additions.
+
+Updating the vcpkg submodule (the brotli library is pulled via vcpkg, not as a top-level submodule):
+
+1. `cd vcpkg && git fetch && git log <current>..origin/master` to review what changed.
+2. Verify the brotli portfile + version pin in `vcpkg/ports/brotli/` is what you expect (the port is what actually defines which brotli release we link against — not the vcpkg root SHA).
+3. `git checkout <new-sha>` inside `vcpkg/`, then `cd .. && git add vcpkg && git commit` from the repo root.
+4. Re-run `build-x64.ps1` and re-deploy. The post-build DLL inspection (size, exports) is the smoke test.
