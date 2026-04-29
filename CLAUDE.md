@@ -88,7 +88,10 @@ We track upstream `master` to stay current with brotli library security updates 
 
 Updating the vcpkg submodule (the brotli library is pulled via vcpkg, not as a top-level submodule):
 
-1. `cd vcpkg && git fetch && git log <current>..origin/master` to review what changed.
-2. Verify the brotli portfile + version pin in `vcpkg/ports/brotli/` is what you expect (the port is what actually defines which brotli release we link against — not the vcpkg root SHA).
-3. `git checkout <new-sha>` inside `vcpkg/`, then `cd .. && git add vcpkg && git commit` from the repo root.
+1. `cd vcpkg && git fetch && git log <current>..origin/master` to review what changed in the vcpkg tooling itself.
+2. Verify the brotli portfile + version pin we actually consume. **The build uses `--overlay-ports build/vcpkg/ports/` (see `build/vcpkg/response`), so the overlay's `build/vcpkg/ports/brotli/` overrides the submodule's `vcpkg/ports/brotli/`.** Updating only the submodule's port file leaves the overlay version in effect, and the rebuilt DLL still links against the overlay's pinned brotli release. To pick up an upstream brotli update:
+    - `diff -u build/vcpkg/ports/brotli/portfile.cmake vcpkg/ports/brotli/portfile.cmake` to see what the overlay locks down vs. what the submodule now offers.
+    - If you want the new version: copy the relevant fields (REF, SHA512, version-semver) from `vcpkg/ports/brotli/` into `build/vcpkg/ports/brotli/`.
+    - Inspect the diff and the upstream release notes for any portfile-shape changes (vcpkg API drift, new patches) that need to be reflected in the overlay.
+3. `git checkout <new-sha>` inside `vcpkg/`, then `cd .. && git add vcpkg build/vcpkg/ports/brotli && git commit` from the repo root.
 4. Re-run `build-x64.ps1` and re-deploy. The post-build DLL inspection (size, exports) is the smoke test.
