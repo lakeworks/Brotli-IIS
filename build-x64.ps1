@@ -12,6 +12,12 @@
 
 $ErrorActionPreference = 'Stop'
 
+# Note: $ErrorActionPreference = 'Stop' converts cmdlet errors into terminating
+# exceptions, but native exe non-zero exits set $LASTEXITCODE without throwing.
+# Every native invocation below MUST be followed by an explicit
+# `if ($LASTEXITCODE -ne 0) { throw ... }` check. If you add another `& <native>`
+# call, add the check at the same time.
+
 $repoRoot = $PSScriptRoot
 $vcpkgRoot = Join-Path $repoRoot 'vcpkg'
 $buildRoot = Join-Path $repoRoot 'build'
