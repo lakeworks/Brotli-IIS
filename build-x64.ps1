@@ -66,15 +66,13 @@ $responseFile = Join-Path $repoRoot 'build/vcpkg/response'
 if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
 
 Write-Host "[4/5] Locating built DLL..." -ForegroundColor Cyan
-$installRoot = Join-Path $repoRoot 'out/vcpkg/install/win-x64-avx2/bin'
-if (-not (Test-Path $installRoot)) {
-    # vcpkg may install elsewhere depending on flags; search broadly.
-    $candidates = Get-ChildItem -Recurse -Filter 'brotli.dll' -Path $repoRoot |
-                  Where-Object { $_.FullName -notmatch 'vcpkg\\downloads' -and $_.FullName -notmatch '\\packages\\' }
-    if (-not $candidates) { throw "Could not locate built brotli.dll" }
-    $built = $candidates[0].FullName
-} else {
-    $built = Join-Path $installRoot 'brotli.dll'
+# vcpkg installs to a deterministic per-triplet path. Look only there:
+# falling back to a recursive Get-ChildItem search risks picking up a
+# stale DLL from a previous build, or worse — the brotli library's own
+# brotli.dll (different ABI from what IIS expects).
+$built = Join-Path $repoRoot 'out/vcpkg/install/win-x64-avx2/bin/brotli.dll'
+if (-not (Test-Path $built)) {
+    throw "Could not locate built brotli.dll at expected path: $built"
 }
 
 Write-Host "[5/5] Copying to $outDir..." -ForegroundColor Cyan
