@@ -94,6 +94,19 @@ try {
     # rather than the caller's cwd.
     Push-Location $repoRoot
     try {
+        # The brotli-iis overlay port (build/vcpkg/ports/brotli-iis/portfile.cmake)
+        # copies the plugin sources from ${REPO_ROOT}/src into vcpkg's per-build
+        # source path. vcpkg's installed-package metadata only tracks the port
+        # files themselves (portfile.cmake + vcpkg.json), not the external
+        # sources. So when an already-installed brotli-iis exists, `vcpkg
+        # install` short-circuits as "already installed" — even after a local
+        # edit to src/brotli.c or an upstream pull that changed it. The post-
+        # build copy step then ships a stale brotli.dll from the prior build.
+        # `vcpkg remove` forces a clean re-install. Squelch the "package not
+        # installed" exit on first build.
+        & $vcpkgExe remove "brotli-iis:win-x64-avx2" "@$responseFile" 2>&1 | Out-Null
+        $LASTEXITCODE = 0  # `remove` of a non-installed package is fine
+
         & $vcpkgExe install "brotli-iis:win-x64-avx2" "@$responseFile"
         if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
     } finally {
