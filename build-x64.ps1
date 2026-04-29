@@ -30,12 +30,12 @@ if (-not (Test-Path (Join-Path $vcpkgRoot 'bootstrap-vcpkg.bat'))) {
 
 Write-Host "[1/5] Bootstrapping vcpkg..." -ForegroundColor Cyan
 $vcpkgExe = Join-Path $vcpkgRoot 'vcpkg.exe'
-# Always re-bootstrap. bootstrap-vcpkg.bat is idempotent — it checks the
+# Always re-bootstrap. bootstrap-vcpkg.bat is idempotent -- it checks the
 # embedded toolversion against the existing vcpkg.exe and only re-downloads
 # when the submodule has been advanced past what the current binary supports.
 # Skipping bootstrap when vcpkg.exe is merely *present* (the previous guard)
 # left an old vcpkg-tool binary running against newer ports/scripts after a
-# `git submodule update` — the documented update path in CLAUDE.md.
+# `git submodule update` -- the documented update path in CLAUDE.md.
 & (Join-Path $vcpkgRoot 'bootstrap-vcpkg.bat') -disableMetrics
 if ($LASTEXITCODE -ne 0) { throw "vcpkg bootstrap failed" }
 
@@ -71,7 +71,7 @@ Write-Host "[3/5] Building Brotli library (vcpkg) with AVX2..." -ForegroundColor
 #   VCPKG_C_FLAGS_RELEASE = "/GL /arch:AVX2"
 # AFTER include(shared.cmake), so it overrides the upstream "/GL"-only value.
 # vcpkg keys buildtrees by triplet name, so swapping win-x64 for win-x64-avx2
-# forces a fresh compile of the brotli dependency port — no stale-buildtree
+# forces a fresh compile of the brotli dependency port -- no stale-buildtree
 # reuse across triplet names.
 
 # Why no post-build AVX2 verify: brotli's encoder is entropy-coding-dominated
@@ -105,7 +105,7 @@ try {
         #     the per-build source path. vcpkg's installed-package metadata
         #     only hashes the port files (portfile.cmake + vcpkg.json), not
         #     the external sources. A local edit to src/brotli.c won't
-        #     invalidate the installed package — `vcpkg install` short-
+        #     invalidate the installed package -- `vcpkg install` short-
         #     circuits and the post-build copy ships a stale DLL.
         #
         # (b) The brotli library dependency itself (vcpkg/ports/brotli/) is
@@ -113,11 +113,11 @@ try {
         #     After a vcpkg submodule advance that updates brotli's port
         #     (the documented update flow in CLAUDE.md), removing only
         #     brotli-iis leaves the *old* brotli static lib in the install
-        #     tree — vcpkg considers brotli satisfied and the rebuilt
+        #     tree -- vcpkg considers brotli satisfied and the rebuilt
         #     plugin DLL still links against the prior brotli release.
         #
         # Remove both before install. After remove, verify the install tree
-        # no longer contains the package metadata for either name — if a
+        # no longer contains the package metadata for either name -- if a
         # remove failed for a non-benign reason (file lock, permission, etc),
         # the next install short-circuits on the still-installed package and
         # we'd ship a stale DLL. Verifying absence on disk is more robust
@@ -148,7 +148,7 @@ try {
 Write-Host "[4/5] Locating built DLL..." -ForegroundColor Cyan
 # vcpkg installs to a deterministic per-triplet path. Look only there:
 # falling back to a recursive Get-ChildItem search risks picking up a
-# stale DLL from a previous build, or worse — the brotli library's own
+# stale DLL from a previous build, or worse -- the brotli library's own
 # brotli.dll (different ABI from what IIS expects).
 $built = Join-Path $repoRoot 'out/vcpkg/install/win-x64-avx2/bin/brotli.dll'
 if (-not (Test-Path $built)) {
