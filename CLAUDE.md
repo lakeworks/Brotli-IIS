@@ -42,14 +42,18 @@ DLL goes to `C:\Program Files\IIS\IIS Compression\brotli.dll` (alongside the exi
 
 Register the scheme in root `applicationHost.config`:
 
+Add the scheme to the existing `<httpCompression>` element (don't replace the wrapper — the existing element registers gzip/deflate and the static/dynamic MIME-type tables that you need to keep):
+
 ```xml
-<httpCompression>
-  <scheme name="br" dll="C:\Program Files\IIS\IIS Compression\brotli.dll"
-          dynamicCompressionLevel="5" staticCompressionLevel="11" />
-</httpCompression>
+<scheme name="br" dll="C:\Program Files\IIS\IIS Compression\brotli.dll"
+        dynamicCompressionLevel="5" staticCompressionLevel="10" />
 ```
 
-`staticCompressionLevel="11"` is brotli max — fine for static assets cached at edge. `dynamicCompressionLevel="5"` is a balanced default for runtime-generated content.
+**Levels**: brotli supports 0–11; the IIS metabase schema for `staticCompressionLevel` constrains the value to 0–10 — using 11 risks IIS rejecting the config at load time and bringing down every brotli-eligible app pool. We use 10, the highest schema-allowed value.
+
+`dynamicCompressionLevel="5"` is a balanced default for runtime-generated content (low CPU cost, ~80% of the compression ratio of higher levels).
+
+**Caveat on `staticCompressionLevel="10"`**: even at level 10, brotli encoding cost is high. A cache-busting query string (`?ver=1234567890`) or a non-cacheable response can pin a worker thread on encoding for tens or hundreds of milliseconds per request. Under attack-grade load this is a CPU-exhaustion vector. Either ensure `<httpCompression cacheControlHeader="..." />` is set so encoded responses are cached for repeated requests, or lower this to 7-8 if cache-miss ratios are non-trivial.
 
 **Scheme registration is server-wide.** All sites with `urlCompression doStaticCompression="true"` become eligible for brotli. To limit to specific sites, use per-site `urlCompression` toggles in their respective `web.config`.
 
