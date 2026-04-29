@@ -62,8 +62,16 @@ $env:VCPKG_OVERLAY_TRIPLETS = $overlayDir
 # vcpkg expects a response file; reuse the upstream one.
 $responseFile = Join-Path $repoRoot 'build/vcpkg/response'
 
-& $vcpkgExe install "brotli-iis:win-x64-avx2" "@$responseFile"
-if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
+# Push to repo root so vcpkg's relative path resolution (for the response
+# file's --overlay-ports references etc.) lands on our checked-out tree
+# rather than the caller's cwd.
+Push-Location $repoRoot
+try {
+    & $vcpkgExe install "brotli-iis:win-x64-avx2" "@$responseFile"
+    if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
+} finally {
+    Pop-Location
+}
 
 Write-Host "[4/5] Locating built DLL..." -ForegroundColor Cyan
 # vcpkg installs to a deterministic per-triplet path. Look only there:
