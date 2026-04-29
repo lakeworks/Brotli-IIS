@@ -57,6 +57,16 @@ Set-Content -Path $tripletPath -Value $tripletContent -Encoding ASCII
 
 Write-Host "[3/5] Building Brotli library (vcpkg) with AVX2..." -ForegroundColor Cyan
 
+# AVX2 reach: the overlay triplet sets VCPKG_C_FLAGS_RELEASE = "/GL /arch:AVX2"
+# AFTER include(shared.cmake), so it overrides the upstream "/GL"-only value.
+# vcpkg keys buildtrees by triplet name, so changing the triplet from win-x64
+# to win-x64-avx2 forces a fresh compile of the brotli dependency port — there
+# is no stale-buildtree reuse across triplet names. We do NOT run a post-build
+# dumpbin verify for AVX2 mnemonics: brotli's encoder is entropy-coding-dominated
+# and uses no SIMD intrinsics (verified against google/brotli@1.1.0 source), so
+# whether AVX2 actually emits in the .obj is a perf curiosity, not a correctness
+# property. AVX2 is kept for symmetry with the zstd-IIS overlay (see CLAUDE.md).
+
 # Save and restore env vars so the build script doesn't leak state into
 # the calling PowerShell session (where it would affect subsequent vcpkg
 # invocations the user might run by hand).
