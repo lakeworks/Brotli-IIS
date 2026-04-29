@@ -1,14 +1,30 @@
-# Build Brotli-IIS for x64 with AVX2 (Intel Haswell+ / AMD Excavator+).
+# Build Brotli-IIS for x64.
 #
-# Output: out/brotli.dll
+# Output: out/brotli.dll  (last-build-wins; the bench's matrix runner copies
+# this into out/variants/<variant>/brotli.dll for cross-arch comparisons)
+#
+# Parameters:
+#   -Arch <avx2|sse2>  default: avx2
+#     avx2 — /arch:AVX2 baseline (Intel Haswell+ / AMD Excavator+ / Zen+)
+#     sse2 — x64 default codegen (no /arch: flag); SSE2 is implicit since
+#            x64 ABI already mandates it. Used for the AVX2-vs-SSE2 keep/drop
+#            measurement in the bench matrix.
 #
 # Prerequisites:
 #   - Visual Studio 2022 Build Tools with the C++ workload + Windows SDK
 #   - Git (for vcpkg submodule)
 #
-# This wraps the upstream vcpkg-based build with an AVX2-enabled overlay triplet.
-# The upstream win-x64.cmake / shared.cmake stay unmodified so we can pull
-# upstream changes without merge conflicts.
+# This wraps the upstream vcpkg-based build with an arch-specific overlay
+# triplet (win-x64-avx2 / win-x64-sse2). The upstream win-x64.cmake /
+# shared.cmake stay unmodified so we can pull upstream changes without merge
+# conflicts. vcpkg keys buildtrees by triplet name, so swapping triplets
+# forces a fresh compile of the brotli dependency port — no stale-buildtree
+# reuse across arch variants.
+
+param(
+    [ValidateSet('avx2','sse2')]
+    [string]$Arch = 'avx2'
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -21,8 +37,15 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = $PSScriptRoot
 $vcpkgRoot = Join-Path $repoRoot 'vcpkg'
 $buildRoot = Join-Path $repoRoot 'build'
-$overlayDir = Join-Path $buildRoot 'vcpkg-overlay-avx2'
+$tripletName = "win-x64-$Arch"
+$overlayDir = Join-Path $buildRoot "vcpkg-overlay-$Arch"
 $outDir = Join-Path $repoRoot 'out'
+
+# Arch-specific compiler flag. SSE2 is the x64 default — we pass *no* /arch:
+# flag in that case rather than /arch:SSE2 (MSVC accepts /arch:SSE2 but emits
+# the same code as the unflagged baseline; using the absence is more honest).
+$archFlag = if ($Arch -eq 'avx2') { '/arch:AVX2' } else { '' }
+$archDescription = if ($Arch -eq 'avx2') { 'AVX2 (Intel Haswell+ / AMD Excavator+ / Zen+)' } else { 'SSE2 (x64 baseline; no /arch: flag)' }
 
 if (-not (Test-Path (Join-Path $vcpkgRoot 'bootstrap-vcpkg.bat'))) {
     throw "vcpkg submodule missing. Run: git submodule update --init --recursive"
@@ -39,12 +62,14 @@ $vcpkgExe = Join-Path $vcpkgRoot 'vcpkg.exe'
 & (Join-Path $vcpkgRoot 'bootstrap-vcpkg.bat') -disableMetrics
 if ($LASTEXITCODE -ne 0) { throw "vcpkg bootstrap failed" }
 
-Write-Host "[2/5] Preparing AVX2 overlay triplet..." -ForegroundColor Cyan
+Write-Host "[2/5] Preparing $($Arch.ToUpper()) overlay triplet..." -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path $overlayDir | Out-Null
 
-# Custom triplet inheriting upstream + adding /arch:AVX2 to CL flags.
-$tripletContent = @'
-include(${CMAKE_CURRENT_LIST_DIR}/../vcpkg/shared.cmake)
+# Custom triplet inheriting upstream + injecting the arch-specific CL flag
+# alongside /GL (whole-program optimization).
+$archCFlags = (@('/GL', $archFlag) | Where-Object { $_ }) -join ' '
+$tripletContent = @"
+include(`${CMAKE_CURRENT_LIST_DIR}/../vcpkg/shared.cmake)
 
 set(VCPKG_DISABLE_COMPILER_TRACKING true)
 set(VCPKG_TARGET_ARCHITECTURE x64)
@@ -52,29 +77,29 @@ set(VCPKG_CRT_LINKAGE static)
 set(VCPKG_LIBRARY_LINKAGE static)
 set(VCPKG_BUILD_TYPE release)
 
-# AVX2 baseline: Intel Haswell (2013+) / AMD Excavator (2015+) / Zen (2017+).
+# $archDescription
 # Combined with /GL + /LTCG from shared.cmake for whole-program optimization.
-set(VCPKG_C_FLAGS_RELEASE "/GL /arch:AVX2")
-set(VCPKG_CXX_FLAGS_RELEASE "/GL /arch:AVX2")
+set(VCPKG_C_FLAGS_RELEASE "$archCFlags")
+set(VCPKG_CXX_FLAGS_RELEASE "$archCFlags")
 
 if(PORT IN_LIST _PKG_LIBS)
   set(VCPKG_LIBRARY_LINKAGE dynamic)
 endif()
-'@
+"@
 
-$tripletPath = Join-Path $overlayDir 'win-x64-avx2.cmake'
+$tripletPath = Join-Path $overlayDir "$tripletName.cmake"
 Set-Content -Path $tripletPath -Value $tripletContent -Encoding ASCII
 
-Write-Host "[3/5] Building Brotli library (vcpkg) with AVX2..." -ForegroundColor Cyan
+Write-Host "[3/5] Building Brotli library (vcpkg) with $($Arch.ToUpper())..." -ForegroundColor Cyan
 
-# AVX2 flag delivery: the overlay triplet sets
-#   VCPKG_C_FLAGS_RELEASE = "/GL /arch:AVX2"
+# Arch flag delivery: the overlay triplet sets
+#   VCPKG_C_FLAGS_RELEASE = "/GL [/arch:AVX2 if applicable]"
 # AFTER include(shared.cmake), so it overrides the upstream "/GL"-only value.
-# vcpkg keys buildtrees by triplet name, so swapping win-x64 for win-x64-avx2
-# forces a fresh compile of the brotli dependency port -- no stale-buildtree
-# reuse across triplet names.
+# vcpkg keys buildtrees by triplet name, so swapping win-x64 for
+# win-x64-<arch> forces a fresh compile of the brotli dependency port — no
+# stale-buildtree reuse across arch variants.
 
-# Why no post-build AVX2 verify: brotli's encoder is entropy-coding-dominated
+# Why no post-build SIMD-verify: brotli's encoder is entropy-coding-dominated
 # and uses no SIMD intrinsics (verified against google/brotli@1.1.0 source),
 # so whether AVX2 actually emits in the .obj is a perf curiosity, not a
 # correctness property. The flag stays for symmetry with the zstd-IIS overlay
@@ -87,7 +112,7 @@ $prevBinarySources = $env:VCPKG_BINARY_SOURCES
 $prevOverlayTriplets = $env:VCPKG_OVERLAY_TRIPLETS
 
 try {
-    $env:VCPKG_BINARY_SOURCES = 'clear'  # disable any cached non-AVX2 binaries
+    $env:VCPKG_BINARY_SOURCES = 'clear'  # disable any cached cross-arch binaries
     $env:VCPKG_OVERLAY_TRIPLETS = $overlayDir
 
     # vcpkg expects a response file; reuse the upstream one.
@@ -122,10 +147,10 @@ try {
         # the next install short-circuits on the still-installed package and
         # we'd ship a stale DLL. Verifying absence on disk is more robust
         # than parsing exit codes.
-        & $vcpkgExe remove "brotli-iis:win-x64-avx2" "brotli:win-x64-avx2" "@$responseFile" 2>&1 | Out-Null
+        & $vcpkgExe remove "brotli-iis:$tripletName" "brotli:$tripletName" "@$responseFile" 2>&1 | Out-Null
         $LASTEXITCODE = 0  # exit code is unreliable here; we check on disk below
 
-        $installRoot = Join-Path $repoRoot 'out/vcpkg/install/win-x64-avx2'
+        $installRoot = Join-Path $repoRoot "out/vcpkg/install/$tripletName"
         $vcpkgInfoDir = Join-Path $installRoot 'vcpkg/info'
         if (Test-Path $vcpkgInfoDir) {
             $stillInstalled = Get-ChildItem $vcpkgInfoDir -Filter '*.list' -ErrorAction SilentlyContinue |
@@ -135,7 +160,7 @@ try {
             }
         }
 
-        & $vcpkgExe install "brotli-iis:win-x64-avx2" "@$responseFile"
+        & $vcpkgExe install "brotli-iis:$tripletName" "@$responseFile"
         if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
     } finally {
         Pop-Location
@@ -150,7 +175,7 @@ Write-Host "[4/5] Locating built DLL..." -ForegroundColor Cyan
 # falling back to a recursive Get-ChildItem search risks picking up a
 # stale DLL from a previous build, or worse -- the brotli library's own
 # brotli.dll (different ABI from what IIS expects).
-$built = Join-Path $repoRoot 'out/vcpkg/install/win-x64-avx2/bin/brotli.dll'
+$built = Join-Path $repoRoot "out/vcpkg/install/$tripletName/bin/brotli.dll"
 if (-not (Test-Path $built)) {
     throw "Could not locate built brotli.dll at expected path: $built"
 }
