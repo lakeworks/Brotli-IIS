@@ -56,21 +56,33 @@ $tripletPath = Join-Path $overlayDir 'win-x64-avx2.cmake'
 Set-Content -Path $tripletPath -Value $tripletContent -Encoding ASCII
 
 Write-Host "[3/5] Building Brotli library (vcpkg) with AVX2..." -ForegroundColor Cyan
-$env:VCPKG_BINARY_SOURCES = 'clear'  # disable any cached non-AVX2 binaries
-$env:VCPKG_OVERLAY_TRIPLETS = $overlayDir
 
-# vcpkg expects a response file; reuse the upstream one.
-$responseFile = Join-Path $repoRoot 'build/vcpkg/response'
+# Save and restore env vars so the build script doesn't leak state into
+# the calling PowerShell session (where it would affect subsequent vcpkg
+# invocations the user might run by hand).
+$prevBinarySources = $env:VCPKG_BINARY_SOURCES
+$prevOverlayTriplets = $env:VCPKG_OVERLAY_TRIPLETS
 
-# Push to repo root so vcpkg's relative path resolution (for the response
-# file's --overlay-ports references etc.) lands on our checked-out tree
-# rather than the caller's cwd.
-Push-Location $repoRoot
 try {
-    & $vcpkgExe install "brotli-iis:win-x64-avx2" "@$responseFile"
-    if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
+    $env:VCPKG_BINARY_SOURCES = 'clear'  # disable any cached non-AVX2 binaries
+    $env:VCPKG_OVERLAY_TRIPLETS = $overlayDir
+
+    # vcpkg expects a response file; reuse the upstream one.
+    $responseFile = Join-Path $repoRoot 'build/vcpkg/response'
+
+    # Push to repo root so vcpkg's relative path resolution (for the response
+    # file's --overlay-ports references etc.) lands on our checked-out tree
+    # rather than the caller's cwd.
+    Push-Location $repoRoot
+    try {
+        & $vcpkgExe install "brotli-iis:win-x64-avx2" "@$responseFile"
+        if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
+    } finally {
+        Pop-Location
+    }
 } finally {
-    Pop-Location
+    $env:VCPKG_BINARY_SOURCES = $prevBinarySources
+    $env:VCPKG_OVERLAY_TRIPLETS = $prevOverlayTriplets
 }
 
 Write-Host "[4/5] Locating built DLL..." -ForegroundColor Cyan
