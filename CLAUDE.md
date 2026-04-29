@@ -75,7 +75,7 @@ Then re-test via CDN to verify the Bunny zstd bug behavior.
 - `src/brotli.def` — DLL exports
 - `src/CMakeLists.txt` — upstream build config
 - `build/vcpkg/...` — vcpkg overlay (custom triplets, brotli-iis port, shared.cmake)
-- `build-x64.ps1` — our AVX2 build script (lwkdev fork)
+- `build-x64.ps1` — our AVX2 build script (lakeworks fork)
 
 ## Upstream relationship
 
