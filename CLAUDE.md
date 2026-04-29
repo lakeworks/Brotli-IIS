@@ -62,7 +62,7 @@ Add the scheme to the existing `<httpCompression>` element (don't replace the wr
 
 ```bash
 # Direct origin probe with Chrome's Accept-Encoding
-curl -sS -I -H "Accept-Encoding: gzip, deflate, br" https://deepvector-studio.com/wp-content/themes/oceanwp/assets/js/theme.min.js
+curl -sS -I -H "Accept-Encoding: gzip, deflate, br" https://your-site.example.com/wp-content/themes/oceanwp/assets/js/theme.min.js
 # Expect: Content-Encoding: br
 ```
 
@@ -75,7 +75,7 @@ Then re-test via CDN to verify the Bunny zstd bug behavior.
 - `src/brotli.def` — DLL exports
 - `src/CMakeLists.txt` — upstream build config
 - `build/vcpkg/...` — vcpkg overlay (custom triplets, brotli-iis port, shared.cmake)
-- `build-x64.ps1` — our AVX2 build script (mstickers-local)
+- `build-x64.ps1` — our AVX2 build script (lwkdev fork)
 
 ## Upstream relationship
 
