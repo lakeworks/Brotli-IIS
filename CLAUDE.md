@@ -22,8 +22,9 @@ Full investigation: `D:\CC\docs\iis-compression-and-bunny-zstd.md`.
 ## Local policy
 
 - **No precompiled DLLs from upstream.** Always build from source via `build-x64.ps1`. Upstream binaries are unsigned (verified 2026-04-29) — building locally gives us supply-chain provenance.
-- **AVX2 baseline** in our build (Intel Haswell+ / AMD Excavator+). Acceptable since target servers are all post-2017.
-- **No AVX-512.** Brotli's encoder is mostly entropy coding, not SIMD-amenable; AVX-512 also causes server downclock under sustained load on some SKUs.
+- **AVX2 baseline** in our build (Intel Haswell+ / AMD Excavator+). The brotli encoder is dominated by entropy coding (range/Huffman) which doesn't vectorise well — measurable speedup from AVX2 is <1% on encode workload. We keep `/arch:AVX2` for symmetry with the zstd-IIS build (where it does pay off ~2-5%) and because all our deployment targets are post-2017 silicon. **Caveat**: if this DLL is ever deployed to a Hyper-V VM running in CPU compatibility mode, an older DR failover host, or an AWS/Azure SKU that masks AVX2 in the guest, w3wp.exe will crash on the first illegal instruction. Verify CPU compat before deploying off the canonical fleet.
+- **No AVX-512.** Marginal benefit on this encoder + server-side clock-throttling under sustained AVX-512 load on most Xeon Scalable / Zen 4 SKUs.
+- **Window size is brotli's default (LGWIN=22, 4 MiB)**. Chrome accepts up to LGWIN=24; we don't override. Asymmetric vs zstd-IIS, where we explicitly cap windowLog at 23 to stay under Chrome's 8 MiB zstd-specific limit. **Don't "match" the zstd cap by raising brotli's window** — zstd's limit is decoder-imposed by Chrome; brotli's defaults are already inside the safe zone.
 
 ## Build
 
