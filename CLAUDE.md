@@ -41,9 +41,11 @@ The script sets up an AVX2-enabled vcpkg overlay triplet and builds via vcpkg wi
 
 DLL goes to `C:\Program Files\IIS\IIS Compression\brotli.dll` (alongside the existing Microsoft IIS Compression schemes — see `kimboslice99/zstd-IIS` issue #1 for path convention).
 
-Register the scheme in root `applicationHost.config`:
+Register the scheme in root `applicationHost.config`.
 
-Add the scheme to the existing `<httpCompression>` element (don't replace the wrapper — the existing element registers gzip/deflate and the static/dynamic MIME-type tables that you need to keep):
+**Add the scheme to the existing `<httpCompression>` element** — don't replace the wrapper. The existing element registers `gzip`/`deflate` and the static/dynamic MIME-type tables; replacing it wipes them and breaks compression for every site on the server.
+
+**Order matters: the `br` `<scheme>` line must precede the existing `gzip` and `deflate` `<scheme>` entries.** IIS evaluates the registered schemes in document order and serves the first one whose name matches a token in the request's `Accept-Encoding` header. Chrome sends `Accept-Encoding: gzip, deflate, br, zstd`; if `br` is registered after `gzip`, IIS picks `gzip` and the brotli pipeline is never invoked — the bandwidth + Bunny-CDN-zstd-bug-avoidance reasons for deploying this module are silently defeated. Place the `<scheme name="br" .../>` line above the existing `gzip` and `deflate` entries (or use `appcmd /+"[name='br',...]"` followed by `appcmd /-` + re-add of gzip/deflate to force order; or hand-edit the XML, accepting the lock-while-IIS-running caveat from the master doc's runbook).
 
 ```xml
 <scheme name="br" dll="C:\Program Files\IIS\IIS Compression\brotli.dll"
