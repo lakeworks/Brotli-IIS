@@ -75,6 +75,7 @@ Then re-test via CDN to verify the Bunny zstd bug behavior.
 - `src/brotli.c` (~58 LoC) — `Compress`, `CreateCompression`, `DestroyCompression`
 - `src/brotli.h` (~25 LoC) — Init/DeInit/Reset stubs + includes
 - `src/brotli.def` — DLL exports
+- `src/brotli.rc.in` — Windows resource template (DLL versioning, copyright)
 - `src/CMakeLists.txt` — upstream build config
 - `build/vcpkg/...` — vcpkg overlay (custom triplets, brotli-iis port, shared.cmake)
 - `build-x64.ps1` — our AVX2 build script (lakeworks fork)
