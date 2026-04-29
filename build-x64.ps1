@@ -116,10 +116,24 @@ try {
         #     tree — vcpkg considers brotli satisfied and the rebuilt
         #     plugin DLL still links against the prior brotli release.
         #
-        # Remove both before install. Squelch the "package not installed"
-        # exit on first build.
+        # Remove both before install. After remove, verify the install tree
+        # no longer contains the package metadata for either name — if a
+        # remove failed for a non-benign reason (file lock, permission, etc),
+        # the next install short-circuits on the still-installed package and
+        # we'd ship a stale DLL. Verifying absence on disk is more robust
+        # than parsing exit codes.
         & $vcpkgExe remove "brotli-iis:win-x64-avx2" "brotli:win-x64-avx2" "@$responseFile" 2>&1 | Out-Null
-        $LASTEXITCODE = 0  # `remove` of a non-installed package is fine
+        $LASTEXITCODE = 0  # exit code is unreliable here; we check on disk below
+
+        $installRoot = Join-Path $repoRoot 'out/vcpkg/install/win-x64-avx2'
+        $vcpkgInfoDir = Join-Path $installRoot 'vcpkg/info'
+        if (Test-Path $vcpkgInfoDir) {
+            $stillInstalled = Get-ChildItem $vcpkgInfoDir -Filter '*.list' -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match '^(brotli|brotli-iis)_' }
+            if ($stillInstalled) {
+                throw "vcpkg remove did not clear the install tree (residual: $($stillInstalled.Name -join ', '))"
+            }
+        }
 
         & $vcpkgExe install "brotli-iis:win-x64-avx2" "@$responseFile"
         if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
