@@ -9,7 +9,7 @@ Origin (IIS) currently only encodes `gzip`/`deflate`. Modern browsers prefer `br
 - Faster cache fills, lower egress costs
 - May steer Bunny CDN's edge pipeline away from the zstd interop bug (when origin returns brotli for Chrome's `gzip, deflate, br, zstd` requests, Bunny doesn't enter the broken "client wanted zstd, origin returned identity" code path).
 
-Full investigation: `D:\CC\docs\iis-compression-and-bunny-zstd.md`.
+Full investigation: `./docs/iis-compression-and-bunny-zstd.md`.
 
 ## Upstream
 

@@ -5,8 +5,8 @@
 #
 # Parameters:
 #   -Arch <avx2|sse2>  default: avx2
-#     avx2 — /arch:AVX2 baseline (Intel Haswell+ / AMD Excavator+ / Zen+)
-#     sse2 — x64 default codegen (no /arch: flag); SSE2 is implicit since
+#     avx2 -- /arch:AVX2 baseline (Intel Haswell+ / AMD Excavator+ / Zen+)
+#     sse2 -- x64 default codegen (no /arch: flag); SSE2 is implicit since
 #            x64 ABI already mandates it. Used for the AVX2-vs-SSE2 keep/drop
 #            measurement in the bench matrix.
 #
@@ -18,7 +18,7 @@
 # triplet (win-x64-avx2 / win-x64-sse2). The upstream win-x64.cmake /
 # shared.cmake stay unmodified so we can pull upstream changes without merge
 # conflicts. vcpkg keys buildtrees by triplet name, so swapping triplets
-# forces a fresh compile of the brotli dependency port — no stale-buildtree
+# forces a fresh compile of the brotli dependency port -- no stale-buildtree
 # reuse across arch variants.
 
 param(
@@ -41,7 +41,7 @@ $tripletName = "win-x64-$Arch"
 $overlayDir = Join-Path $buildRoot "vcpkg-overlay-$Arch"
 $outDir = Join-Path $repoRoot 'out'
 
-# Arch-specific compiler flag. SSE2 is the x64 default — we pass *no* /arch:
+# Arch-specific compiler flag. SSE2 is the x64 default -- we pass *no* /arch:
 # flag in that case rather than /arch:SSE2 (MSVC accepts /arch:SSE2 but emits
 # the same code as the unflagged baseline; using the absence is more honest).
 $archFlag = if ($Arch -eq 'avx2') { '/arch:AVX2' } else { '' }
@@ -96,7 +96,7 @@ Write-Host "[3/5] Building Brotli library (vcpkg) with $($Arch.ToUpper())..." -F
 #   VCPKG_C_FLAGS_RELEASE = "/GL [/arch:AVX2 if applicable]"
 # AFTER include(shared.cmake), so it overrides the upstream "/GL"-only value.
 # vcpkg keys buildtrees by triplet name, so swapping win-x64 for
-# win-x64-<arch> forces a fresh compile of the brotli dependency port — no
+# win-x64-<arch> forces a fresh compile of the brotli dependency port -- no
 # stale-buildtree reuse across arch variants.
 
 # Why no post-build SIMD-verify: brotli's encoder is entropy-coding-dominated

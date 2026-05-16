@@ -4,7 +4,7 @@
 
 The Brotli-IIS fork has minimal local additions (build-x64.ps1 + CLAUDE.md, zero source modifications), and the reuse lens finds one actionable consolidation opportunity without blocking findings.
 
-The sibling zstd-IIS fork shares parallel structure and deployment guidance. Both projects' CLAUDE.md files contain redundant scheme-registration and deployment-procedure documentation that is now superseded by the expanded "Per-DLL deployment runbook" section in the master doc (D:\CC\docs\iis-compression-and-bunny-zstd.md). Project CLAUDE.md files can safely reference this single source of truth rather than duplicating the runbook.
+The sibling zstd-IIS fork shares parallel structure and deployment guidance. Both projects' CLAUDE.md files contain redundant scheme-registration and deployment-procedure documentation that is now superseded by the expanded "Per-DLL deployment runbook" section in the master doc (./docs/iis-compression-and-bunny-zstd.md). Project CLAUDE.md files can safely reference this single source of truth rather than duplicating the runbook.
 
 No duplicate code within Brotli-IIS. The build script (build-x64.ps1) is compact (122 lines) and straightforward — no extracted helpers needed.
 
@@ -15,9 +15,9 @@ No duplicate code within Brotli-IIS. The build script (build-x64.ps1) is compact
 ### R-1 — Deployment procedure duplicated across Brotli-IIS and zstd-IIS CLAUDE.md files
 
 **Files**:
-- D:\CC\Brotli-IIS\CLAUDE.md:40-72 (Deployment + Verification sections)
-- D:\CC\zstd-IIS\CLAUDE.md:59-99 (Deployment + Verification sections, with zstd-specific details)
-- D:\CC\docs\iis-compression-and-bunny-zstd.md:194-258 (master "Per-DLL deployment runbook")
+- ./Brotli-IIS/CLAUDE.md:40-72 (Deployment + Verification sections)
+- ./zstd-IIS/CLAUDE.md:59-99 (Deployment + Verification sections, with zstd-specific details)
+- ./docs/iis-compression-and-bunny-zstd.md:194-258 (master "Per-DLL deployment runbook")
 
 **Observation**:
 
@@ -42,7 +42,7 @@ Example for Brotli-IIS CLAUDE.md:
 
   ## Deployment
 
-  Follow the Per-DLL deployment runbook in D:\CC\docs\iis-compression-and-bunny-zstd.md
+  Follow the Per-DLL deployment runbook in ./docs/iis-compression-and-bunny-zstd.md
   (lines 194-258). It covers DLL placement, scheme registration via appcmd, config backup,
   pool recycling, and post-deployment verification for both Brotli-IIS and zstd-IIS.
 
@@ -75,9 +75,9 @@ Example for Brotli-IIS CLAUDE.md:
 ### R-2 — "Local policy" duplicates AVX2 rationale across both projects
 
 **Files**:
-- D:\CC\Brotli-IIS\CLAUDE.md:22-27 (Local policy)
-- D:\CC\zstd-IIS\CLAUDE.md:29-33 (Local policy)
-- D:\CC\docs\iis-compression-and-bunny-zstd.md:164-172 (SIMD / AVX2 / AVX512 considerations)
+- ./Brotli-IIS/CLAUDE.md:22-27 (Local policy)
+- ./zstd-IIS/CLAUDE.md:29-33 (Local policy)
+- ./docs/iis-compression-and-bunny-zstd.md:164-172 (SIMD / AVX2 / AVX512 considerations)
 
 **Observation**:
 
@@ -115,7 +115,7 @@ Example simplification for Brotli-IIS:
 
 ### R-3 — No intra-project code duplication
 
-**Files**: D:\CC\Brotli-IIS\build-x64.ps1 (122 lines)
+**Files**: ./Brotli-IIS/build-x64.ps1 (122 lines)
 
 **Observation**:
 
