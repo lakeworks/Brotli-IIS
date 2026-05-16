@@ -1,0 +1,20 @@
+The build script's new stale-package verification checks a metadata path vcpkg does not use, so it can miss failed removes and still ship stale artifacts. There is also a low-priority Windows-shell issue in the new update instructions.
+
+Full review comments:
+
+- [P2] Check vcpkg metadata in the shared install root — ./Brotli-IIS/build-x64.ps1:153-154
+  With `--x-install-root out/vcpkg/install`, vcpkg keeps package metadata in the shared `out/vcpkg/install/vcpkg/info` directory, while the per-triplet directory only contains `bin`, `lib`, etc. This makes `Test-Path $vcpkgInfoDir` false on normal installs, so the new residual-package check is skipped; if `vcpkg remove` fails or leaves `brotli`/`brotli-iis` installed, the following `install` can still short-circuit and copy a stale DLL. Check the shared info dir and filter filenames for the current `$tripletName`.
+
+- [P3] Use a PowerShell-safe portfile diff command — ./Brotli-IIS/CLAUDE.md:93-93
+  When this procedure is run from the repo's PowerShell workflow, `diff` resolves to the `Compare-Object` alias and `-u` is not a valid parameter. Following the instruction from the default shell fails unless the maintainer explicitly switches to Git Bash or removes the alias; use a shell-neutral command such as `git diff --no-index -- ...` or label this as a Git Bash command.
+---
+status: done
+result: findings
+findings: C=0 O=1 P=1
+freshness: fresh
+target_head: 05c7715b76d8975aea7e8d48f982f1517087439e
+summary: "C=0 O=1 P=1; codex did not use ^### tag convention"
+ran_commands: []
+prompt_mode: codex-internal-default
+written_at: 2026-05-16T15:29:17Z
+---

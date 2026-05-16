@@ -1,0 +1,20 @@
+The build script has a stale-package guard that checks the wrong vcpkg metadata location, so it can silently reuse an old DLL after a failed remove. It also generates unignored files in the tracked build tree.
+
+Full review comments:
+
+- [P2] Check vcpkg metadata in the actual install root — ./Brotli-IIS/build-x64.ps1:153-154
+  With the response file's `--x-install-root out/vcpkg/install`, vcpkg writes package metadata under `out/vcpkg/install/vcpkg/info`, not under the per-triplet directory. This `Test-Path` is therefore normally false, so a non-benign `vcpkg remove` failure can be hidden and the following install can short-circuit on the still-installed stale `brotli`/`brotli-iis` packages.
+
+- [P3] Keep generated triplets out of the tracked build tree — ./Brotli-IIS/build-x64.ps1:39-41
+  Running the script writes `build/vcpkg-overlay-<arch>/...` under `build`, but `.gitignore` only excludes `out`, so every local build leaves untracked files in the working tree. That undermines the merge-clean workflow this script is trying to preserve; put the generated overlay under an ignored path or ignore `build/vcpkg-overlay-*`.
+---
+status: done
+result: findings
+findings: C=0 O=1 P=1
+freshness: fresh
+target_head: 05c7715b76d8975aea7e8d48f982f1517087439e
+summary: "C=0 O=1 P=1; codex did not use ^### tag convention"
+ran_commands: []
+prompt_mode: codex-internal-default
+written_at: 2026-05-16T15:50:14Z
+---
