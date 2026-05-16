@@ -8,11 +8,16 @@ gate: 3-docs-tracker
 
 # Brotli-IIS full-validation — gate-3 docs+tracker record
 
-Gate-1 (adversarial 0C/4O/5P + codex 0C/1O/1P, two convergent runs) and
-gate-2 (/simplify, 3 lenses, 0C/0O/5P) ran on Brotli-IIS. The fork delta is
-confirmed build-script + docs only — `src/` is byte-identical to upstream. All
-Operational findings were addressed this session as `adversarial follow-up:` /
-`simplify follow-up:` commits (`05c7715..HEAD`).
+Gate-1 (adversarial 0C/4O/5P; codex 0C/1O/1P) and gate-2 (/simplify, 3 lenses,
+0C/0O/5P) ran on Brotli-IIS. Codex gate-1 ran twice — a short-base run and a
+corrected full-base (`origin/master..HEAD`) run; the two **converged on the
+vcpkg-metadata-path Operational finding**, and the short-base run additionally
+raised the `diff -u` Polish (a PowerShell-alias hazard in CLAUDE.md's
+portfile-compare step). The fork delta is confirmed build-script + docs only —
+`src/` is byte-identical to upstream. All Operational findings were addressed
+this session as `adversarial follow-up:` / `simplify follow-up:` commits
+(`05c7715..HEAD`); the `diff -u` Polish was missed at gate-1 and closed at
+gate-4 (see the gate-4 record below).
 
 ## Gate-3 self-audit
 
@@ -69,3 +74,29 @@ none fork-introduced:
   / CI lint rejecting non-ASCII in `*.ps1`) is the durable fix. This is a
   meta-level change (`~/.claude/` hooks or a per-repo CI step), tracked here as
   a cross-repo followup rather than actioned in this arc.
+
+## Gate-4 /review + codex record
+
+Gate-4 /review returned 0C/0O/2P; gate-4 codex (`mreview --base 05c7715`)
+returned 0C/0O/1P.
+
+- **/review [P1] — done.** A gate-1 codex Polish finding (CLAUDE.md's
+  portfile-compare step used `diff -u`, which hits the `Compare-Object` alias
+  in PowerShell) was never enumerated when gate-1 was addressed. Closed by a
+  gate-4 `review follow-up:` commit — `git diff --no-index` with a
+  parenthetical.
+- **/review [P2] — done.** This doc's intro said "codex 0C/1O/1P, two
+  convergent runs", which over-claimed convergence. Reworded above to state the
+  two codex runs converged only on the vcpkg-metadata Operational finding and
+  that the short-base run separately raised the `diff -u` Polish.
+- **codex [P3] — false positive, no action.** Codex reported a U+0015 control
+  character before "Delegation"/"NN" at lines 21-26 of this doc. Verified the
+  actual file bytes: zero `0x15` bytes; the section markers are correct UTF-8
+  `§` (`0xC2 0xA7`, count 2), consistent with the `§Section` convention used
+  throughout the host CLAUDE.md files. The finding is a codex-side
+  console-codepage rendering artifact (codex's terminal mangled the `§` byte in
+  its view) — the same non-UTF-8-console class as the em-dash bug, but here it
+  is codex's *reading* that mangled, not the file. No change.
+
+Gate 4/4: /review clean of C/O, codex clean of C/O. The Brotli-IIS
+full-validation arc is chain-green.

@@ -1,0 +1,17 @@
+The build-script and deployment-doc changes appear correct. The only finding is a low-priority documentation encoding issue that does not block runtime or build correctness.
+
+Review comment:
+
+- [P3] Replace corrupted section-reference characters — ./Brotli-IIS/docs/reviews/full-validation-followups-2026-05-16.md:21-26
+  In this new tracker note, the section-reference markers were committed as the control character U+0015 before `Delegation` and `NN`. When rendered or searched, these no longer match the intended rule references and display as mojibake, so replace them with `§Delegation`/`§NN` or plain ASCII equivalents.
+---
+status: done
+result: findings
+findings: C=0 O=0 P=1
+freshness: fresh
+target_head: 9a69669886207f96511451af6b615ca36d7d22b2
+summary: "C=0 O=0 P=1; codex did not use ^### tag convention"
+ran_commands: []
+prompt_mode: codex-internal-default
+written_at: 2026-05-16T17:26:44Z
+---
