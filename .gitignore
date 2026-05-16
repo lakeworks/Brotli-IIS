@@ -1,8 +1,8 @@
 .vs
 out
 
-# Arch-specific vcpkg overlay triplets. build-x64.ps1 regenerates these
-# from $Arch on every run (Set-Content) -- pure build scratch, never
-# config. Tracking them would only invite drift from what the script
-# emits. The upstream-tracked triplet (build/vcpkg/triplets/) stays.
+# Arch-specific vcpkg overlay triplets. build-x64.ps1 regenerates the
+# directory and its triplet file from $Arch on every run -- pure build
+# scratch, never config. Tracking them would only invite drift from what
+# the script emits. The upstream-tracked triplet (build/vcpkg/triplets/) stays.
 build/vcpkg-overlay-*/
