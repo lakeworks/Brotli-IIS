@@ -49,12 +49,12 @@ Register the scheme in root `applicationHost.config`.
 
 ```xml
 <scheme name="br" dll="C:\Program Files\IIS\IIS Compression\brotli.dll"
-        dynamicCompressionLevel="5" staticCompressionLevel="10" />
+        dynamicCompressionLevel="4" staticCompressionLevel="10" />
 ```
 
 **Levels**: brotli supports 0–11; the IIS metabase schema for `staticCompressionLevel` constrains the value to 0–10 — using 11 risks IIS rejecting the config at load time and bringing down every brotli-eligible app pool. We use 10, the highest schema-allowed value.
 
-`dynamicCompressionLevel="5"` is a balanced default for runtime-generated content (low CPU cost, ~80% of the compression ratio of higher levels).
+**Caveat on `dynamicCompressionLevel`**: `dynamicCompressionLevel="4"` keeps per-request CPU modest for runtime-generated content, but brotli's cost is steeply non-linear and dynamic compression has **no size floor** — every dynamic response, tiny JSON included, pays the full encoder setup cost. Bench data shows brotli quality 9 taking tens of milliseconds on small payloads (~0.5 MB/s). Keep `dynamicCompressionLevel` at 4 or below; prefer wiring this scheme to *static* compression (cacheable assets) and leaving dynamic responses to `gzip`, or restrict dynamic brotli to large body types via `<dynamicTypes>`. IIS has no minimum-dynamic-size key, so the quality cap is the only lever.
 
 **Caveat on `staticCompressionLevel="10"`**: even at level 10, brotli encoding cost is high. A cache-busting query string (`?ver=1234567890`) or a non-cacheable response can pin a worker thread on encoding for tens or hundreds of milliseconds per request. Under attack-grade load this is a CPU-exhaustion vector. Either ensure `<httpCompression cacheControlHeader="..." />` is set so encoded responses are cached for repeated requests, or lower this to 7-8 if cache-miss ratios are non-trivial.
 

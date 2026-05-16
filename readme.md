@@ -4,6 +4,8 @@
 ---
 **Note**: After this project was created, Microsoft [released their own](https://docs.microsoft.com/en-us/iis/extensions/iis-compression/iis-compression-overview) new compression plugin for Brotli and even [borrowed my workaround](https://docs.microsoft.com/en-us/iis/extensions/iis-compression/using-iis-compression#before-iis-100-version-1803) for `Accept-Encoding` priority.  You may wish to use that plugin instead.
 
+> **lakeworks fork note.** This is the upstream `saucecontrol/Brotli-IIS` readme. For this fork's build and deployment policy see `CLAUDE.md`: build from source via `build-x64.ps1` (do **not** use the releases-page binaries; they are unsigned), and use the deployment sample in `CLAUDE.md` rather than the one below. Note that the IIS metabase schema caps `staticCompressionLevel` at `10`; a value of `11` is rejected at config load and brings down every brotli-eligible app pool.
+
 Brotli IIS Compression Scheme Plugin
 ====================================
 
@@ -45,7 +47,7 @@ The Compression Scheme must be registered in the `applicationHost.config` file. 
 
 ```
 <httpCompression directory="%SystemDrive%\inetpub\temp\IIS Temporary Compressed Files">
-    <scheme name="br" dll="%windir%\system32\inetsrv\brotli.dll" dynamicCompressionLevel="5" staticCompressionLevel="11" />
+    <scheme name="br" dll="%windir%\system32\inetsrv\brotli.dll" dynamicCompressionLevel="5" staticCompressionLevel="10" />
     <scheme name="gzip" dll="%windir%\system32\inetsrv\gzip.dll" dynamicCompressionLevel="4" staticCompressionLevel="9" />
     <staticTypes>
         <add mimeType="text/*" enabled="true" />
