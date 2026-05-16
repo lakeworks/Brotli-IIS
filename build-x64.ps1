@@ -9,6 +9,14 @@
 #     sse2 -- x64 default codegen (no /arch: flag); SSE2 is implicit since
 #            x64 ABI already mandates it. Used for the AVX2-vs-SSE2 keep/drop
 #            measurement in the bench matrix.
+#   -Lto <on|off>  default: on
+#     on  -- whole-program optimization: /GL on the compile flags +
+#            /LTCG on the linker flags (the latter via the overlay triplet's
+#            VCPKG_LINKER_FLAGS_RELEASE, overriding shared.cmake's /LTCG).
+#     off -- neither /GL nor /LTCG. Used for the LTO-on-vs-off cost
+#            measurement in the bench matrix. LTO-off uses the triplet name
+#            win-x64-<arch>-nolto so its buildtree never collides with the
+#            LTO-on variant (vcpkg keys buildtrees by triplet name).
 #
 # Prerequisites:
 #   - Visual Studio 2022 Build Tools with the C++ workload + Windows SDK
@@ -23,7 +31,10 @@
 
 param(
     [ValidateSet('avx2','sse2')]
-    [string]$Arch = 'avx2'
+    [string]$Arch = 'avx2',
+
+    [ValidateSet('on','off')]
+    [string]$Lto = 'on'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -37,8 +48,13 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = $PSScriptRoot
 $vcpkgRoot = Join-Path $repoRoot 'vcpkg'
 $buildRoot = Join-Path $repoRoot 'build'
-$tripletName = "win-x64-$Arch"
-$overlayDir = Join-Path $buildRoot "vcpkg-overlay-$Arch"
+# vcpkg keys buildtrees by triplet name; the LTO-on and LTO-off variants must
+# not share a triplet or a buildtree, or the second build short-circuits on
+# the first's installed package. The -nolto suffix forces a distinct triplet
+# (and a distinct overlay dir, so the two triplet .cmake files coexist).
+$variantSuffix = if ($Lto -eq 'off') { '-nolto' } else { '' }
+$tripletName = "win-x64-$Arch$variantSuffix"
+$overlayDir = Join-Path $buildRoot "vcpkg-overlay-$Arch$variantSuffix"
 $outDir = Join-Path $repoRoot 'out'
 
 # Arch-specific compiler flag. SSE2 is the x64 default -- we pass *no* /arch:
@@ -46,6 +62,14 @@ $outDir = Join-Path $repoRoot 'out'
 # the same code as the unflagged baseline; using the absence is more honest).
 $archFlag = if ($Arch -eq 'avx2') { '/arch:AVX2' } else { '' }
 $archDescription = if ($Arch -eq 'avx2') { 'AVX2 (Intel Haswell+ / AMD Excavator+ / Zen+)' } else { 'SSE2 (x64 baseline; no /arch: flag)' }
+
+# LTO flag delivery: /GL on the compile flags, /LTCG on the linker flags.
+# When -Lto off, both are empty -- /GL is dropped from VCPKG_*_FLAGS_RELEASE
+# and the overlay triplet's VCPKG_LINKER_FLAGS_RELEASE overrides shared.cmake's
+# unconditional /LTCG with an empty string.
+$ltoCompileFlag = if ($Lto -eq 'on') { '/GL' } else { '' }
+$ltoLinkerFlag = if ($Lto -eq 'on') { '/LTCG' } else { '' }
+$ltoDescription = if ($Lto -eq 'on') { 'LTO on (/GL + /LTCG)' } else { 'LTO off (no /GL, no /LTCG)' }
 
 if (-not (Test-Path (Join-Path $vcpkgRoot 'bootstrap-vcpkg.bat'))) {
     throw "vcpkg submodule missing. Run: git submodule update --init --recursive"
@@ -66,8 +90,8 @@ Write-Host "[2/5] Preparing $($Arch.ToUpper()) overlay triplet..." -ForegroundCo
 New-Item -ItemType Directory -Force -Path $overlayDir | Out-Null
 
 # Custom triplet inheriting upstream + injecting the arch-specific CL flag
-# alongside /GL (whole-program optimization).
-$archCFlags = (@('/GL', $archFlag) | Where-Object { $_ }) -join ' '
+# alongside the LTO compile flag (/GL when -Lto on, empty when off).
+$archCFlags = (@($ltoCompileFlag, $archFlag) | Where-Object { $_ }) -join ' '
 $tripletContent = @"
 include(`${CMAKE_CURRENT_LIST_DIR}/../vcpkg/shared.cmake)
 
@@ -78,9 +102,14 @@ set(VCPKG_LIBRARY_LINKAGE static)
 set(VCPKG_BUILD_TYPE release)
 
 # $archDescription
-# Combined with /GL + /LTCG from shared.cmake for whole-program optimization.
+# $ltoDescription
 set(VCPKG_C_FLAGS_RELEASE "$archCFlags")
 set(VCPKG_CXX_FLAGS_RELEASE "$archCFlags")
+
+# Override shared.cmake's unconditional /LTCG. When -Lto off this is an empty
+# string, which drops /LTCG from the link step so the LTO-off variant
+# genuinely measures the no-whole-program-optimization cost.
+set(VCPKG_LINKER_FLAGS_RELEASE "$ltoLinkerFlag")
 
 if(PORT IN_LIST _PKG_LIBS)
   set(VCPKG_LIBRARY_LINKAGE dynamic)
@@ -205,3 +234,4 @@ Write-Host ""
 Write-Host "Built:    $($info.FullName)" -ForegroundColor Green
 Write-Host "Size:     $($info.Length) bytes"
 Write-Host "Modified: $($info.LastWriteTime)"
+Write-Host "Variant:  $archDescription -- $ltoDescription"
