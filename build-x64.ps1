@@ -141,20 +141,36 @@ try {
         #     tree -- vcpkg considers brotli satisfied and the rebuilt
         #     plugin DLL still links against the prior brotli release.
         #
-        # Remove both before install. After remove, verify the install tree
-        # no longer contains the package metadata for either name -- if a
-        # remove failed for a non-benign reason (file lock, permission, etc),
-        # the next install short-circuits on the still-installed package and
-        # we'd ship a stale DLL. Verifying absence on disk is more robust
-        # than parsing exit codes.
-        & $vcpkgExe remove "brotli-iis:$tripletName" "brotli:$tripletName" "@$responseFile" 2>&1 | Out-Null
-        $LASTEXITCODE = 0  # exit code is unreliable here; we check on disk below
+        # Remove both before install. Two failure detectors, because either
+        # alone has a gap:
+        #   1. The remove call's exit code. A non-zero exit carrying a benign
+        #      "not installed" message is fine to swallow (nothing to remove
+        #      on a first-ever build), but a vcpkg.exe-missing / bootstrap-
+        #      corrupt / triplet-parse failure must surface -- 2>&1 | Out-Null
+        #      plus a blanket $LASTEXITCODE=0 (the previous form) silenced it.
+        #   2. An on-disk check that neither package's metadata survives --
+        #      catches a remove that exited 0 but left residue.
+        $removeOutput = & $vcpkgExe remove "brotli-iis:$tripletName" "brotli:$tripletName" "@$responseFile" 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            $removeText = ($removeOutput | Out-String)
+            if ($removeText -notmatch 'not installed') {
+                throw "vcpkg remove failed (exit ${LASTEXITCODE}):`n$removeText"
+            }
+        }
 
-        $installRoot = Join-Path $repoRoot "out/vcpkg/install/$tripletName"
-        $vcpkgInfoDir = Join-Path $installRoot 'vcpkg/info'
+        # vcpkg classic-mode keeps installed-package metadata in the SHARED
+        # install root's vcpkg/info dir (out/vcpkg/install/vcpkg/info), as
+        # <pkg>_<version>_<triplet>.list -- NOT under the per-triplet
+        # out/vcpkg/install/<triplet>/ subtree (which holds only bin/lib/...).
+        # The previous path never existed, so the residual-package check was
+        # silently skipped on every build. The filename filter is scoped to
+        # $tripletName so a sibling arch variant's metadata cannot
+        # false-positive this build.
+        $vcpkgInfoDir = Join-Path $repoRoot 'out/vcpkg/install/vcpkg/info'
         if (Test-Path $vcpkgInfoDir) {
+            $tripletEsc = [Regex]::Escape($tripletName)
             $stillInstalled = Get-ChildItem $vcpkgInfoDir -Filter '*.list' -ErrorAction SilentlyContinue |
-                Where-Object { $_.Name -match '^(brotli|brotli-iis)_' }
+                Where-Object { $_.Name -match "^(brotli|brotli-iis)_.+_$tripletEsc\.list`$" }
             if ($stillInstalled) {
                 throw "vcpkg remove did not clear the install tree (residual: $($stillInstalled.Name -join ', '))"
             }
