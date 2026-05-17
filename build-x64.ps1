@@ -11,9 +11,11 @@
 #            measurement in the bench matrix.
 #   -Lto <on|off>  default: on
 #     on  -- whole-program optimization: /GL on the compile flags +
-#            /LTCG on the linker flags (the latter via the overlay triplet's
-#            VCPKG_LINKER_FLAGS_RELEASE, overriding shared.cmake's /LTCG).
-#     off -- neither /GL nor /LTCG. Used for the LTO-on-vs-off cost
+#            /LTCG on both the EXE/DLL linker (VCPKG_LINKER_FLAGS_RELEASE)
+#            and the static-lib archiver (VCPKG_STATIC_LINKER_FLAGS_RELEASE)
+#            in the overlay triplet, overriding shared.cmake's /LTCG.
+#     off -- neither /GL nor /LTCG (both linker and archiver flag vars are
+#            blanked). Used for the LTO-on-vs-off cost
 #            measurement in the bench matrix. LTO-off uses the triplet name
 #            win-x64-<arch>-nolto so its buildtree never collides with the
 #            LTO-on variant (vcpkg keys buildtrees by triplet name).
@@ -109,7 +111,16 @@ set(VCPKG_CXX_FLAGS_RELEASE "$archCFlags")
 # Override shared.cmake's unconditional /LTCG. When -Lto off this is an empty
 # string, which drops /LTCG from the link step so the LTO-off variant
 # genuinely measures the no-whole-program-optimization cost.
+# VCPKG_LINKER_FLAGS_RELEASE governs the EXE/DLL linker only; the static-lib
+# archiver (lib.exe) is a separate knob. brotli and the brotli-iis port both
+# build as static libs in this triplet (VCPKG_LIBRARY_LINKAGE static), so the
+# LTO axis must also drive VCPKG_STATIC_LINKER_FLAGS_RELEASE — otherwise a
+# static dependency whose own cmake hardcodes /LTCG on the archiver could
+# leave a /GL-free but residual-/LTCG archive in an -Lto off build, silently
+# mislabelling the variant. Setting it explicitly makes LTO-off an authored
+# invariant rather than an emergent property of the /GL-drop on the objects.
 set(VCPKG_LINKER_FLAGS_RELEASE "$ltoLinkerFlag")
+set(VCPKG_STATIC_LINKER_FLAGS_RELEASE "$ltoLinkerFlag")
 
 if(PORT IN_LIST _PKG_LIBS)
   set(VCPKG_LIBRARY_LINKAGE dynamic)
