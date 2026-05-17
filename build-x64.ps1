@@ -215,6 +215,50 @@ try {
     $env:VCPKG_OVERLAY_TRIPLETS = $prevOverlayTriplets
 }
 
+# --- Post-build axis verification -------------------------------------
+# Catches a silent flag default: the requested -Arch / -Lto axis must
+# actually appear in the compiler/linker command lines, else the matrix
+# would archive a mislabelled variant. vcpkg writes per-port build output
+# (the ninja compile/link command lines) to
+#   out/vcpkg/buildtrees/<port>/install-<triplet>-rel-out.log
+# Both ports are checked: brotli-iis (the plugin) AND brotli (the library
+# dependency, built as a static lib whose archiver /LTCG is the O2 latent
+# defect this gate guards against).
+Write-Host "[3b/5] Verifying requested axis flags emitted..." -ForegroundColor Cyan
+$buildtreesRoot = Join-Path $repoRoot 'out/vcpkg/buildtrees'
+foreach ($port in @('brotli-iis','brotli')) {
+    $portLog = Join-Path $buildtreesRoot "$port/install-$tripletName-rel-out.log"
+    if (-not (Test-Path $portLog)) {
+        throw "Axis verification: vcpkg build log for port '$port' not found at $portLog"
+    }
+    $logText = Get-Content -Raw $portLog
+
+    # LTO: /GL on compile lines and /LTCG on the link/archive line when
+    # -Lto on; both absent when -Lto off. Checking /LTCG here is what
+    # would catch a residual archiver /LTCG on the static-lib brotli port
+    # even after VCPKG_LINKER_FLAGS_RELEASE is blanked.
+    $hasGL   = $logText -match '(?m)[/-]GL(\s|")'
+    $hasLTCG = $logText -match '(?m)[/-]LTCG(\s|"|:)'
+    if ($Lto -eq 'on') {
+        if (-not $hasGL)   { throw "LTO verification failed ($port): -Lto on but /GL absent from build log" }
+        if (-not $hasLTCG) { throw "LTO verification failed ($port): -Lto on but /LTCG absent from build log" }
+    } else {
+        if ($hasGL)   { throw "LTO verification failed ($port): -Lto off but /GL present in build log" }
+        if ($hasLTCG) { throw "LTO verification failed ($port): -Lto off but /LTCG present in build log" }
+    }
+
+    # Arch: /arch:AVX2 must appear when -Arch avx2, absent when -Arch sse2
+    # (the script emits no /arch: flag for sse2).
+    $hasArchAVX2 = $logText -match '/arch:AVX2(\s|")'
+    if ($Arch -eq 'avx2') {
+        if (-not $hasArchAVX2) { throw "Arch verification failed ($port): -Arch avx2 but /arch:AVX2 absent from build log" }
+    } else {
+        if ($hasArchAVX2) { throw "Arch verification failed ($port): -Arch sse2 but /arch:AVX2 present in build log" }
+    }
+}
+Write-Host "Axis verification passed (Arch=$Arch, LTO=$Lto)." -ForegroundColor Green
+# ----------------------------------------------------------------------
+
 Write-Host "[4/5] Locating built DLL..." -ForegroundColor Cyan
 # vcpkg installs to a deterministic per-triplet path. Look only there:
 # falling back to a recursive Get-ChildItem search risks picking up a
