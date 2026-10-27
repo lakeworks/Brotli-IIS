@@ -13,9 +13,10 @@ upstream `CMakeLists.txt:125-134` globs `c/enc/*.c`, so `static_init_lazy.cc` is
 
 **Topology fact that frames question 3:** `v1.2.1` (2026-10-21) is a release branch cut from `v1.2.0`
 (2025-10-27, merge-base `028fb5a`) carrying only two commits: `b418fa8` (decoder: `c/dec/decode.c`,
-`decode.h`) and `db24a98` (version bump). `git diff --stat v1.2.0 v1.2.1 -- c/` touches no encoder or
-common file, so **the 1.2.1 encoder is byte-identical to the 1.2.0 encoder**, and every `master`
-commit since 2025-10-27 is absent from 1.2.1.
+`decode.h`) and `db24a98` (version bump). `git diff --stat v1.2.0 v1.2.1 -- c/` touches no encoder file and,
+in common, only the version metadata in `c/common/version.h`, so **the 1.2.1 encoder implementation is
+identical to the 1.2.0 encoder**, and every `master` commit since 2025-10-27 is absent from 1.2.1.
+*(Corrected 2026-10-28 per the gate-1 codex review [P1]: the original text said no common file changed.)*
 
 ## Verdict
 
