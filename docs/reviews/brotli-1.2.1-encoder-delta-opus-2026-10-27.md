@@ -209,8 +209,11 @@ per-encoder footprint.**
 - `CLAUDE.md:61` says `CompressStream` returns FALSE when the encoder buffers more than IIS's output
   buffer can drain, and recommends lowering the level.
 - The encoder holds pending output internally and returns FALSE only on OOM or misuse
-  (`encode.c:1613-1687`), so lowering the level has no mechanism to fix truncation. A mid-stream
-  `E_FAIL` points at allocation failure.
+  (`encode.c:1613-1687`), so lowering the level has no mechanism to fix truncation. Under the default
+  `BROTLI_ENCODER_EXIT_ON_OOM`, a mid-stream allocation failure exits the process rather than returning
+  `E_FAIL`; only the up-front `CreateCompression` allocation (`BrotliBootstrapAlloc`, plain `malloc`)
+  fails soft. *(Corrected 2026-10-28 per the gate-1 codex review [O1]: the original text said a
+  mid-stream `E_FAIL` points at allocation failure.)*
 - Reachable: n/a (documentation). Present in 1.1.0: yes (same code).
 
 **P3 - Polish. The DLL version resource still says 1.1.0.**
