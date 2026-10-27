@@ -84,7 +84,7 @@ Then re-test via CDN to verify the Bunny zstd bug behavior.
 
 ## Upstream relationship
 
-We track upstream `master` to stay current with brotli library security updates and supply-chain hygiene. **No local source modifications** — only the `build-x64.ps1` script and this CLAUDE.md are local additions — so that `git pull origin master` is always a clean fast-forward and any future contribution back to upstream stays trivially separable from our build/doc additions.
+We track upstream `master` to stay current with brotli library security updates and supply-chain hygiene. **No local source modifications** — only the `build-x64.ps1` script and this CLAUDE.md are local additions — so that `git pull origin master` is always a clean fast-forward and any future contribution back to upstream stays trivially separable from our build/doc additions. **One exception (operator-approved 2026-10-27):** when we move the brotli library ahead of upstream, bump the `BROTLI_VERSION_*` lines in `src/CMakeLists.txt` to the library version, as upstream does with each of its own bumps, so the DLL's file version names the brotli it contains; expect a trivial conflict there when upstream next bumps.
 
 Updating the vcpkg submodule (the brotli library is pulled via vcpkg, not as a top-level submodule):
 
