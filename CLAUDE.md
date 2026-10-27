@@ -16,7 +16,7 @@ Full investigation: `./docs/iis-compression-and-bunny-zstd.md`.
 - **Repo**: https://github.com/saucecontrol/Brotli-IIS
 - **Maintainer**: Clinton Ingram (saucecontrol) — established .NET imaging maintainer
 - **License**: MIT
-- **Library**: Google brotli 1.1.0, vcpkg-managed with SHA512 verification
+- **Library**: Google brotli 1.2.1, vcpkg-managed with SHA512 verification (overlay port = vcpkg's own 1.2.1 port, `build/vcpkg/ports/brotli/`). The DLL links only `brotlienc` + `brotlicommon`, never the decoder, so decoder CVEs such as CVE-2026-111497 do not reach it.
 - **Code review notes**: see top-level docs file (encoder-only, ~80 LoC plugin glue, no I/O/network/registry/subprocess)
 
 ## Local policy
