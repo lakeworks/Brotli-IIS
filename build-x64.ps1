@@ -140,7 +140,9 @@ Write-Host "[3/5] Building Brotli library (vcpkg) with $($Arch.ToUpper())..." -F
 # stale-buildtree reuse across arch variants.
 
 # Why no post-build SIMD-verify: brotli's encoder is entropy-coding-dominated
-# and uses no SIMD intrinsics (verified against google/brotli@1.1.0 source),
+# and its only explicit intrinsics are SSE2 (the brotli 1.2 tag matchers for
+# qualities 5-7 on x64, c/enc/matching_tag_mask.h), plus _mm_prefetch and
+# _tzcnt_u64 -- nothing gated on AVX2 (checked against google/brotli@1.2.1),
 # so whether AVX2 actually emits in the .obj is a perf curiosity, not a
 # correctness property. The flag stays for symmetry with the zstd-IIS overlay
 # (where AVX2 does pay off ~2-5%). See CLAUDE.md for the full rationale.
