@@ -1,0 +1,1 @@
+- {"tag": "P1", "disposition": "done-now", "by": ["main-session"], "reason": "cold-file expectation qualified by static-compression eligibility; round 4 clean", "fix": "91ca68a2698b860479307e02ef7f78596f35860b", "review_sha256": "c01e005577693482e2fa13804277a586467dac6e74f17c613e528b6d77871965"}
