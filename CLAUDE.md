@@ -65,9 +65,12 @@ Register the scheme in root `applicationHost.config`.
 ## Verification after deploy
 
 ```bash
-# Direct origin probe with Chrome's Accept-Encoding
-curl -sS -I -H "Accept-Encoding: gzip, deflate, br" https://your-site.example.com/wp-content/themes/oceanwp/assets/js/theme.min.js
+# Brotli available at all: a br-only request must come back as br
+curl -sS -I -H "Accept-Encoding: br" https://your-site.example.com/wp-content/themes/oceanwp/assets/js/theme.min.js
 # Expect: Content-Encoding: br
+# Chrome-style header: expect br for a file nothing has fetched yet; an
+# already-served static file may legitimately answer gzip (see "Order matters").
+curl -sS -I -H "Accept-Encoding: gzip, deflate, br" https://your-site.example.com/wp-content/themes/oceanwp/assets/js/theme.min.js
 ```
 
 Then re-test via CDN to verify the Bunny zstd bug behavior.
