@@ -39,7 +39,7 @@ The script sets up an AVX2-enabled vcpkg overlay triplet and builds via vcpkg wi
 
 ## Deployment
 
-DLL goes to `C:\Program Files\IIS\IIS Compression\brotli.dll` (alongside the existing Microsoft IIS Compression schemes — see `kimboslice99/zstd-IIS` issue #1 for path convention).
+DLL goes to `C:\Program Files\IIS\IIS Compression\` (alongside the existing Microsoft IIS Compression schemes — see `kimboslice99/zstd-IIS` issue #1 for path convention). **Upgrade a live server with a versioned file name** (`brotli-<version>.dll`, e.g. `brotli-1.2.1.dll` since 2026-10-28): w3wp.exe keeps the loaded DLL locked, so copy the new one beside the old, repoint the `br` scheme's `dll` attribute, then recycle the app pools — no IIS stop, and the previous file stays in place as the rollback target. The new DLL (and any `httpCompression` attribute change) is only picked up by a freshly started worker; pools with periodic restart and idle timeout disabled never recycle on their own.
 
 Register the scheme in root `applicationHost.config`.
 
