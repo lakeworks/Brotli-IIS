@@ -68,7 +68,10 @@ Register the scheme in root `applicationHost.config`.
 # Brotli available at all: a br-only request must come back as br
 curl -sS -I -H "Accept-Encoding: br" https://your-site.example.com/wp-content/themes/oceanwp/assets/js/theme.min.js
 # Expect: Content-Encoding: br
-# Chrome-style header: expect br for a file nothing has fetched yet; an
+# Chrome-style header: br for a never-served file only when static
+# compression applies on the first hit (MIME in <staticTypes>, size >=
+# minFileSizeForComp, staticCompressionIgnoreHitFrequency="true" -- with IIS's
+# default hit-frequency check the first responses may be uncompressed); an
 # already-served static file may legitimately answer gzip (see "Order matters").
 curl -sS -I -H "Accept-Encoding: gzip, deflate, br" https://your-site.example.com/wp-content/themes/oceanwp/assets/js/theme.min.js
 ```
