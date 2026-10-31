@@ -5,27 +5,33 @@
 
 .DESCRIPTION
     Deploys a prebuilt brotli.dll (no build on the target). Runs on Windows PowerShell 5.1
-    and PowerShell 7. Every change goes through appcmd.exe; -WhatIf shows each change and
-    makes none.
+    and PowerShell 7. IIS configuration changes go through appcmd.exe; the DLL copy, state
+    file and service restart are the only other changes. -WhatIf lists the changes and makes
+    none; -Confirm asks once for the whole change set.
 
     Install:
       1. Preflight: 64-bit OS, IIS present, static + dynamic compression modules present,
          CPU reports AVX2 (the DLL is built with /arch:AVX2), DLL SHA-256 = -ExpectedSha256.
       2. appcmd backup of applicationHost.config, named brotli-iis-<timestamp>.
-      3. Copy the DLL to %ProgramFiles%\IIS\IIS Compression\brotli-<major.minor.patch>.dll
+      3. Write a state file next to the DLLs recording the previous br scheme (all its
+         attributes and its position), the two -ProxyFriendly attributes and the scheme
+         order, for -Rollback. It is written before any configuration change; if an install
+         stops midway, the next install keeps that baseline.
+      4. Copy the DLL to %ProgramFiles%\IIS\IIS Compression\brotli-<major.minor.patch>.dll
          (a versioned name, because w3wp.exe keeps a loaded DLL locked; the previous file
          stays in place for rollback).
-      4. Register or repoint the "br" scheme as the FIRST scheme, so it precedes gzip/deflate
-         (IIS 10 1803+ uses registration order to break ties between equal q-values).
-      5. Optional -ProxyFriendly: noCompressionForProxies=false and
+      5. Register or repoint the "br" scheme as the FIRST scheme, so it precedes gzip/deflate
+         (IIS 10 1803+ uses registration order to break ties between equal q-values). An
+         existing br scheme keeps its other attributes (doStaticCompression, ...).
+      6. Optional -ProxyFriendly: noCompressionForProxies=false and
          staticCompressionIgnoreHitFrequency=true, so requests arriving through a CDN or
          proxy (Via header) are compressed, and static files from the first hit.
-      6. Write a state file next to the DLL recording what was there before, for -Rollback.
     A scheme dll or level change takes effect only after a WWW service restart (Microsoft
     scheme reference); -RestartWww does it, otherwise the commands are printed.
 
-    Rollback: restores the "br" scheme and the two -ProxyFriendly attributes recorded by the
-    last install that changed something. Other configuration is left alone. The full
+    Rollback: restores the "br" scheme (attributes and first/last position, or removes it if
+    the install added it) and the two -ProxyFriendly attributes recorded by the last install
+    that changed something. Other configuration is left alone. The full
     applicationHost.config backup is also kept; its restore command is printed.
 
 .EXAMPLE
@@ -87,16 +93,17 @@ function Get-CompressionConfig {
     [xml]$xml = (Invoke-AppCmd @('list', 'config', "-section:$Section", '/xml', '/config:*')) -join "`n"
     $node = $xml.SelectSingleNode('/appcmd/CONFIG/system.webServer-httpCompression')
     if ($null -eq $node) { throw "Could not read $Section from appcmd output." }
+    # /config:* lists every attribute, defaults included, so Attrs is the scheme's full state.
     $schemes = @()
-    foreach ($s in $node.SelectNodes('scheme')) {
-        $schemes += [pscustomobject]@{
-            Name    = $s.GetAttribute('name')
-            Dll     = $s.GetAttribute('dll')
-            Dynamic = $s.GetAttribute('dynamicCompressionLevel')
-            Static  = $s.GetAttribute('staticCompressionLevel')
-        }
+    $nodes = @($node.SelectNodes('scheme'))
+    for ($i = 0; $i -lt $nodes.Count; $i++) {
+        $attrs = [ordered]@{}
+        foreach ($a in $nodes[$i].Attributes) { $attrs[$a.Name] = $a.Value }
+        $position = 'middle'
+        if ($i -eq 0) { $position = 'start' } elseif ($i -eq $nodes.Count - 1) { $position = 'end' }
+        $schemes += [pscustomobject]@{ Name = $attrs['name']; Attrs = $attrs; Position = $position }
     }
-    $proxy = @{}
+    $proxy = [ordered]@{}
     foreach ($a in $ProxyAttrs) { $proxy[$a] = $node.GetAttribute($a) }
     return [pscustomobject]@{ Schemes = $schemes; Proxy = $proxy }
 }
@@ -109,21 +116,33 @@ function Show-Schemes([object]$Config) {
     $i = 0
     foreach ($s in $Config.Schemes) {
         $i++
-        Write-Host ("  {0}. {1,-8} {2}  dynamic={3} static={4}" -f $i, $s.Name, $s.Dll, $s.Dynamic, $s.Static)
+        Write-Host ("  {0}. {1,-8} {2}  dynamic={3} static={4}" -f $i, $s.Name, $s.Attrs['dll'], $s.Attrs['dynamicCompressionLevel'], $s.Attrs['staticCompressionLevel'])
     }
 }
 
-# Removes the br scheme, then adds it back as the first entry. Two appcmd commits: for a
-# moment the server has no br scheme; running workers keep their loaded DLL until restart.
-function Set-BrScheme([string]$Dll, [string]$Dynamic, [string]$Static, [bool]$Exists) {
-    if ($Dll.Contains("'")) { throw "DLL path contains a single quote, which appcmd cannot take: $Dll" }
-    $attrs = "name='br',dll='$Dll'"
-    if ($Dynamic -ne '') { $attrs += ",dynamicCompressionLevel='$Dynamic'" }
-    if ($Static -ne '')  { $attrs += ",staticCompressionLevel='$Static'" }
-    if ($Exists) {
+# Makes the br scheme carry exactly $Attrs at $Position ('start' or 'end', the two positions
+# appcmd names). Already at that position: every attribute is set in place in one appcmd
+# commit. Otherwise it is removed and re-added there: two commits, so for a moment the server
+# has no br scheme (running workers keep their loaded DLL until the WWW service restarts).
+function Set-BrScheme([System.Collections.IDictionary]$Attrs, [string]$Position, [object]$Current) {
+    foreach ($k in $Attrs.Keys) {
+        if ("$($Attrs[$k])".Contains("'")) { throw "Scheme attribute $k contains a single quote, which appcmd cannot take: $($Attrs[$k])" }
+    }
+    if ($null -ne $Current -and $Current.Position -eq $Position) {
+        $sets = @($Attrs.Keys | Where-Object { $_ -ne 'name' } | ForEach-Object { "/[name='br'].${_}:$($Attrs[$_])" })
+        Invoke-AppCmd (@('set', 'config', "-section:$Section") + $sets + @('/commit:apphost')) | Out-Null
+        return
+    }
+    if ($null -ne $Current) {
         Invoke-AppCmd @('set', 'config', "-section:$Section", "/-[name='br']", '/commit:apphost') | Out-Null
     }
-    Invoke-AppCmd @('set', 'config', "-section:$Section", "/+[@start,$attrs]", '/commit:apphost') | Out-Null
+    $list = (@($Attrs.Keys) | ForEach-Object { "$_='$($Attrs[$_])'" }) -join ','
+    Invoke-AppCmd @('set', 'config', "-section:$Section", "/+[@$Position,$list]", '/commit:apphost') | Out-Null
+}
+
+function Write-State([hashtable]$State) {
+    New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
+    $State | ConvertTo-Json -Depth 5 | Set-Content -Path $StateFile -Encoding UTF8
 }
 
 function Restart-Www {
@@ -173,24 +192,35 @@ if ($PSCmdlet.ParameterSetName -eq 'Rollback') {
     $br     = Get-BrScheme $config
     Write-Host "Rolling back to the configuration recorded before backup $($state.Backup)."
 
-    if ($PSCmdlet.ShouldProcess($Section, 'Restore the br scheme recorded before the last install')) {
-        if ($state.PreviousBr) {
-            Set-BrScheme -Dll $state.PreviousBr.Dll -Dynamic $state.PreviousBr.Dynamic -Static $state.PreviousBr.Static -Exists ($null -ne $br)
+    $previousAttrs = $null
+    if ($state.PreviousBr) {
+        $previousAttrs = [ordered]@{}
+        foreach ($p in $state.PreviousBr.Attrs.PSObject.Properties) { $previousAttrs[$p.Name] = $p.Value }
+    }
+    $proxyRestore = @($ProxyAttrs | Where-Object { "$($state.PreviousProxy.$_)" -ne '' -and $state.PreviousProxy.$_ -ne $config.Proxy[$_] })
+    $plan = @()
+    if ($null -ne $previousAttrs) { $plan += "restore br (dll=$($previousAttrs['dll'])) at its previous position ($($state.PreviousBr.Position))" }
+    elseif ($null -ne $br) { $plan += 'remove br (absent before the install)' }
+    foreach ($a in $proxyRestore) { $plan += "set $a back to '$($state.PreviousProxy.$a)'" }
+    $plan += 'remove the install state file'
+
+    # One confirmation for the whole rollback; the state file goes only after every step succeeded.
+    if ($PSCmdlet.ShouldProcess($Section, ($plan -join '; '))) {
+        if ($null -ne $previousAttrs) {
+            $position = $state.PreviousBr.Position
+            if ($position -eq 'middle') {
+                Write-Warning ('br was neither first nor last before the install; it is restored last. Previous scheme order: ' + ($state.PreviousOrder -join ', '))
+                $position = 'end'
+            }
+            Set-BrScheme -Attrs $previousAttrs -Position $position -Current $br
         } elseif ($null -ne $br) {
             Invoke-AppCmd @('set', 'config', "-section:$Section", "/-[name='br']", '/commit:apphost') | Out-Null
         }
-    }
-    foreach ($a in $ProxyAttrs) {
-        $old = $state.PreviousProxy.$a
-        if ($old -ne $config.Proxy[$a] -and $PSCmdlet.ShouldProcess($Section, "Set $a back to '$old'")) {
-            if ($old -eq '') {
-                Invoke-AppCmd @('set', 'config', "-section:$Section", "/-$a", '/commit:apphost') | Out-Null
-            } else {
-                Invoke-AppCmd @('set', 'config', "-section:$Section", "/${a}:$old", '/commit:apphost') | Out-Null
-            }
+        foreach ($a in $proxyRestore) {
+            Invoke-AppCmd @('set', 'config', "-section:$Section", "/${a}:$($state.PreviousProxy.$a)", '/commit:apphost') | Out-Null
         }
+        Remove-Item -Path $StateFile
     }
-    if ($PSCmdlet.ShouldProcess($StateFile, 'Remove the install state file')) { Remove-Item -Path $StateFile }
 
     Write-Host 'Schemes now:'
     Show-Schemes (Get-CompressionConfig)
@@ -236,11 +266,16 @@ if (Test-Path -LiteralPath $target) {
     $copyNeeded = $false
 }
 
-$schemeNeeded = ($null -eq $br) -or
-                ($br.Dll -ne $target) -or
-                ($br.Dynamic -ne "$DynamicLevel") -or
-                ($br.Static -ne "$StaticLevel") -or
-                ($config.Schemes[0].Name -ne 'br')
+# The wanted br scheme: the existing one's attributes (doStaticCompression,
+# doDynamicCompression, ...) with the DLL and levels replaced, or a new entry with IIS defaults.
+$wantedAttrs = [ordered]@{ name = 'br' }
+if ($null -ne $br) { foreach ($k in $br.Attrs.Keys) { $wantedAttrs[$k] = $br.Attrs[$k] } }
+$wantedAttrs['dll'] = $target
+$wantedAttrs['dynamicCompressionLevel'] = "$DynamicLevel"
+$wantedAttrs['staticCompressionLevel'] = "$StaticLevel"
+
+$schemeNeeded = ($null -eq $br) -or ($br.Position -ne 'start') -or
+                @($wantedAttrs.Keys | Where-Object { "$($br.Attrs[$_])" -ne "$($wantedAttrs[$_])" }).Count -gt 0
 $proxyWanted = @{ noCompressionForProxies = 'false'; staticCompressionIgnoreHitFrequency = 'true' }
 $proxyNeeded = $ProxyFriendly -and @($ProxyAttrs | Where-Object { $config.Proxy[$_] -ne $proxyWanted[$_] }).Count -gt 0
 
@@ -248,35 +283,56 @@ if (-not ($copyNeeded -or $schemeNeeded -or $proxyNeeded)) {
     Write-Host 'Already installed with these settings; nothing to change.'
 } else {
     $backup = 'brotli-iis-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
-    if ($PSCmdlet.ShouldProcess('applicationHost.config', "Create appcmd backup $backup")) {
-        Invoke-AppCmd @('add', 'backup', $backup) | Out-Null
-    }
-    if ($copyNeeded -and $PSCmdlet.ShouldProcess($target, "Copy $source")) {
-        New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
-        Copy-Item -LiteralPath $source -Destination $target
-        if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $hash) { throw "Copied file $target does not match the verified SHA-256." }
-    }
-    if ($schemeNeeded -and $PSCmdlet.ShouldProcess($Section, "Set scheme br first: dll=$target dynamic=$DynamicLevel static=$StaticLevel")) {
-        Set-BrScheme -Dll $target -Dynamic "$DynamicLevel" -Static "$StaticLevel" -Exists ($null -ne $br)
-    }
-    if ($proxyNeeded -and $PSCmdlet.ShouldProcess($Section, 'Set noCompressionForProxies=false, staticCompressionIgnoreHitFrequency=true')) {
-        Invoke-AppCmd @('set', 'config', "-section:$Section", '/noCompressionForProxies:false', '/staticCompressionIgnoreHitFrequency:true', '/commit:apphost') | Out-Null
-    }
-    if ($PSCmdlet.ShouldProcess($StateFile, 'Record the previous configuration for -Rollback')) {
-        $previousBr = $null
-        if ($null -ne $br) { $previousBr = @{ Dll = $br.Dll; Dynamic = $br.Dynamic; Static = $br.Static } }
-        @{ Backup = $backup; PreviousBr = $previousBr; PreviousProxy = $config.Proxy; Installed = $target } |
-            ConvertTo-Json -Depth 4 | Set-Content -Path $StateFile -Encoding UTF8
-    }
-    Write-Host "Backup: $backup"
-}
 
-if (-not $WhatIfPreference) {
-    $after = Get-CompressionConfig
-    Write-Host 'Schemes after:'
-    Show-Schemes $after
-    if ($after.Schemes[0].Name -ne 'br' -or (Get-BrScheme $after).Dll -ne $target) {
-        throw 'Post-check failed: br is not the first scheme or does not point at the installed DLL.'
+    # Rollback baseline. An earlier install that did not finish left its state file with
+    # Completed = false; its baseline is the configuration before that attempt, so keep it
+    # rather than record the half-changed configuration as "previous".
+    $state = $null
+    if (Test-Path $StateFile) {
+        $old = Get-Content -Raw -Path $StateFile | ConvertFrom-Json
+        if (-not ($old.PSObject.Properties['Completed'] -and $old.Completed)) {
+            Write-Warning "An earlier install (backup $($old.Backup)) did not finish; keeping its recorded baseline for -Rollback."
+            $state = @{ Backup = $old.Backup; PreviousBr = $old.PreviousBr; PreviousProxy = $old.PreviousProxy; PreviousOrder = $old.PreviousOrder }
+        }
+    }
+    if ($null -eq $state) {
+        $previousBr = $null
+        if ($null -ne $br) { $previousBr = @{ Attrs = $br.Attrs; Position = $br.Position } }
+        $state = @{ Backup = $backup; PreviousBr = $previousBr; PreviousProxy = $config.Proxy; PreviousOrder = @($config.Schemes | ForEach-Object { $_.Name }) }
+    }
+    $state['Installed'] = $target
+    $state['Completed'] = $false
+
+    $plan = @("appcmd backup $backup", "record the rollback baseline in $StateFile")
+    if ($copyNeeded)   { $plan += "copy the DLL to $target" }
+    if ($schemeNeeded) { $plan += "register br first: dll=$target dynamic=$DynamicLevel static=$StaticLevel" }
+    if ($proxyNeeded)  { $plan += 'set noCompressionForProxies=false, staticCompressionIgnoreHitFrequency=true' }
+
+    # One confirmation for the whole change set: under -Confirm no step can run without the
+    # backup and the rollback baseline that precede it.
+    if ($PSCmdlet.ShouldProcess($Section, ($plan -join '; '))) {
+        Invoke-AppCmd @('add', 'backup', $backup) | Out-Null
+        Write-State $state
+        Write-Host "Backup: $backup. If a later step fails: .\install-iis.ps1 -Rollback (or appcmd restore backup `"$backup`")."
+        if ($copyNeeded) {
+            Copy-Item -LiteralPath $source -Destination $target
+            if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $hash) { throw "Copied file $target does not match the verified SHA-256." }
+        }
+        if ($schemeNeeded) { Set-BrScheme -Attrs $wantedAttrs -Position 'start' -Current $br }
+        if ($proxyNeeded) {
+            Invoke-AppCmd @('set', 'config', "-section:$Section", '/noCompressionForProxies:false', '/staticCompressionIgnoreHitFrequency:true', '/commit:apphost') | Out-Null
+        }
+
+        $after = Get-CompressionConfig
+        Write-Host 'Schemes after:'
+        Show-Schemes $after
+        $afterBr = Get-BrScheme $after
+        if ($null -eq $afterBr -or $afterBr.Position -ne 'start' -or $afterBr.Attrs['dll'] -ne $target) {
+            throw 'Post-check failed: br is not the first scheme or does not point at the installed DLL. Run .\install-iis.ps1 -Rollback.'
+        }
+        $state['Completed'] = $true
+        Write-State $state
+        Write-Host "Installed. To undo: .\install-iis.ps1 -Rollback -RestartWww"
     }
 }
 
