@@ -8,6 +8,8 @@ Verbatim, 2026-10-31: "do we have an easy way to deploy Brotli compression on ot
 
 ## Constraints
 
+- Operator 2026-10-31: "we deploy a binary, not going for the build on a remote vm!" / "hosts are identical". Target VMs only download the released DLL, verify its hash and run the install script; the single build happens on the build host.
+
 - Public repository: no host names, IP addresses, host paths, customer or site names in any tracked file, commit message or release asset.
 - The released DLL must not embed the build host's path. Measured 2026-10-31: the DLL built at `.claude/worktrees/brotli-121/out/brotli.dll` (the one deployed) carries the full build-tree PDB path. Fix: link with `/PDBALTPATH:%_PDB%` so only `brotli.pdb` is embedded.
 - The script must run on Windows PowerShell 5.1 as well as PowerShell 7 (a fresh Windows Server VM has only 5.1). Use `appcmd.exe` for IIS configuration; no module or package install.
@@ -23,6 +25,11 @@ Verbatim, 2026-10-31: "do we have an easy way to deploy Brotli compression on ot
    - End: print the resulting scheme list in order, the backup name, the rollback command, and — without `-RestartWww` — that the new DLL takes effect only after a WWW service restart (Microsoft scheme reference) and the exact commands.
 3. `readme.md`: a short "Install on IIS" section (download release asset, verify hash, run the script, verify with curl), placed in our fork's own section. One commit.
 4. Release (after review and merge): rebuild with step 1, run the bench round-trip + IIS-ABI conformance suite against the rebuilt DLL, check the DLL holds no host path, then publish GitHub release `brotli-iis-1.2.1` on `lakeworks/Brotli-IIS` with `brotli.dll` + `SHA256SUMS`.
+
+## Deviations from the plan (implementation, 2026-10-31)
+
+- No PE-machine or export-table check: the SHA-256 pin to the published checksum already fixes the exact binary, so a structural check adds code without adding a guarantee.
+- `-StaticLevel` accepts 0–11, not 0–10. The build host's `%windir%\system32\inetsrv\config\schema\IIS_schema.xml` declares `staticCompressionLevel` and `dynamicCompressionLevel` as `uint` with no validation range (read 2026-10-31), and `src/brotli.c` accepts 0–11, so CLAUDE.md's "the IIS metabase schema constrains the value to 0–10" does not hold on that host. Default stays 10 (operator 2026-10-31: "so we could change the default?", then "yes let's keep the default"); the CLAUDE.md sentence needs correcting in its own commit.
 
 ## Out of scope
 
