@@ -27,7 +27,9 @@
          staticCompressionIgnoreHitFrequency=true, so requests arriving through a CDN or
          proxy (Via header) are compressed, and static files from the first hit.
     A scheme dll or level change takes effect only after a WWW service restart (Microsoft
-    scheme reference); -RestartWww does it, otherwise the commands are printed.
+    scheme reference); -RestartWww does it, otherwise the commands are printed. Until this
+    script restarts the service (or the host reboots), later runs keep reporting the restart
+    as pending and -VerifyUrl refuses to check.
 
     Rollback: restores the "br" scheme (attributes and position, or removes it if the install
     added it) and the two -ProxyFriendly attributes recorded by the last install that changed
@@ -191,17 +193,41 @@ function Write-RecycleNote {
     Write-Host '  appcmd list apppool /xml | appcmd recycle apppool /in'
 }
 
+# An install records ChangedAt and ActivationPending in the state file. The change counts as
+# active once this script restarted the WWW service, or once the host booted after ChangedAt.
+# A WWW restart done by hand is not detected: run the script with -RestartWww instead.
+function Test-PendingActivation {
+    if (-not (Test-Path $StateFile)) { return $false }
+    $s = Get-Content -Raw -Path $StateFile | ConvertFrom-Json
+    if (-not ($s.PSObject.Properties['ActivationPending'] -and $s.ActivationPending)) { return $false }
+    $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime()
+    return -not ($boot -gt ([datetime]$s.ChangedAt).ToUniversalTime())
+}
+
+function Clear-PendingActivation {
+    if (-not (Test-Path $StateFile)) { return }
+    $s = Get-Content -Raw -Path $StateFile | ConvertFrom-Json
+    if ($s.PSObject.Properties['ActivationPending']) {
+        $s.ActivationPending = $false
+        $s | ConvertTo-Json -Depth 5 | Set-Content -Path $StateFile -Encoding UTF8 -Confirm:$false
+    }
+}
+
 # Shared end of install and rollback: restart if asked, otherwise say what activates the
 # change; verify only when the running workers reflect the configuration.
 function Complete-Activation([bool]$SchemeChanged, [bool]$ProxyChanged) {
+    $pendingBefore = Test-PendingActivation
     $restarted = $false
-    if ($RestartWww) { $restarted = Restart-Www }
-    elseif ($SchemeChanged) { Write-RestartNote }
+    if ($RestartWww) {
+        $restarted = Restart-Www
+        if ($restarted) { Clear-PendingActivation }
+    }
+    elseif ($SchemeChanged -or $pendingBefore) { Write-RestartNote }
     elseif ($ProxyChanged) { Write-RecycleNote }
     if (-not $VerifyUrl) { return }
     if ($WhatIfPreference) { Write-Host 'Skipping -VerifyUrl under -WhatIf.'; return }
-    if (($SchemeChanged -or $ProxyChanged) -and -not $restarted) {
-        throw "The change was applied, but -VerifyUrl was not checked: it is not active until the WWW service restarts. Re-run with -RestartWww, or restart and run the script again."
+    if (($SchemeChanged -or $ProxyChanged -or $pendingBefore) -and -not $restarted) {
+        throw "-VerifyUrl was not checked: an applied change is not active until the WWW service restarts. Re-run with -RestartWww -VerifyUrl."
     }
     Test-BrResponse $VerifyUrl
 }
@@ -383,6 +409,8 @@ if (-not ($copyNeeded -or $schemeNeeded -or $proxyNeeded)) {
             throw 'Post-check failed: br is not the first scheme or does not point at the installed DLL. Run .\install-iis.ps1 -Rollback.'
         }
         $state['Completed'] = $true
+        $state['ChangedAt'] = (Get-Date).ToUniversalTime().ToString('o')
+        $state['ActivationPending'] = $true
         Write-State $state
         Write-Host "Installed. To undo: .\install-iis.ps1 -Rollback -RestartWww"
         $applied = $true
