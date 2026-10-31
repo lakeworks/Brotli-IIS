@@ -52,7 +52,7 @@ Register the scheme in root `applicationHost.config`.
         dynamicCompressionLevel="4" staticCompressionLevel="10" />
 ```
 
-**Levels**: brotli supports 0–11; the IIS metabase schema for `staticCompressionLevel` constrains the value to 0–10 — using 11 risks IIS rejecting the config at load time and bringing down every brotli-eligible app pool. We use 10, the highest schema-allowed value.
+**Levels**: brotli supports 0–11 and the plugin accepts the full range (`src/brotli.c`). The IIS schema on our Windows Server 2025 hosts declares `staticCompressionLevel` and `dynamicCompressionLevel` as plain `uint` with no validation range (`%windir%\system32\inetsrv\config\schema\IIS_schema.xml`, read 2026-10-31), so 11 is not rejected by the schema; level 11 has not been run in production here. We use 10 (operator 2026-10-31: "yes let's keep the default").
 
 **Caveat on `dynamicCompressionLevel`**: `dynamicCompressionLevel="4"` keeps per-request CPU modest for runtime-generated content, but brotli's cost is steeply non-linear and dynamic compression has **no size floor** — every dynamic response, tiny JSON included, pays the full encoder setup cost. Bench data shows brotli quality 9 taking tens of milliseconds on small payloads (~0.5 MB/s) — the steep upper end of the curve; quality 4 is materially cheaper but still pays the per-request encoder setup on every response. Keep `dynamicCompressionLevel` at 4 or below; prefer wiring this scheme to *static* compression (cacheable assets) and leaving dynamic responses to `gzip`, or restrict dynamic brotli to large body types via `<dynamicTypes>`. IIS has no minimum-dynamic-size key, so the quality cap is the only lever.
 
