@@ -81,6 +81,17 @@ function Invoke-AppCmd {
     return $out
 }
 
+# SHA-256 as upper-case hex. Not Get-FileHash: in Windows PowerShell 5.1 it honours -WhatIf
+# and returns nothing, which broke the dry run (measured 2026-10-31).
+function Get-Sha256([string]$Path) {
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try { return ([System.BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '') }
+        finally { $sha.Dispose() }
+    } finally { $stream.Dispose() }
+}
+
 function Get-CompressionConfig {
     [xml]$xml = (Invoke-AppCmd @('list', 'config', "-section:$Section", '/xml', '/config:*')) -join "`n"
     $node = $xml.SelectSingleNode('/appcmd/CONFIG/system.webServer-httpCompression')
@@ -215,7 +226,7 @@ if (-not [BrotliIis.Cpu]::IsProcessorFeaturePresent(40)) {
 }
 
 $source = (Resolve-Path -LiteralPath $DllPath).ProviderPath
-$hash   = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
+$hash   = Get-Sha256 $source
 if ($hash -ne $ExpectedSha256.ToUpperInvariant()) {
     throw "SHA-256 mismatch for $source`n  expected $($ExpectedSha256.ToUpperInvariant())`n  actual   $hash"
 }
@@ -234,7 +245,7 @@ Show-Schemes $config
 
 $copyNeeded = $true
 if (Test-Path -LiteralPath $target) {
-    $targetHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+    $targetHash = Get-Sha256 $target
     if ($targetHash -ne $hash) {
         throw "$target already exists with a different SHA-256 ($targetHash). Refusing to overwrite a DLL that w3wp.exe may have loaded."
     }
@@ -279,7 +290,7 @@ if (-not ($copyNeeded -or $schemeNeeded -or $proxyNeeded)) {
 
         if ($copyNeeded) {
             Copy-Item -LiteralPath $source -Destination $target -Confirm:$false
-            if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $hash) { throw "Copied file $target does not match the verified SHA-256." }
+            if ((Get-Sha256 $target) -ne $hash) { throw "Copied file $target does not match the verified SHA-256." }
         }
         if ($schemeNeeded) { Set-BrSchemeFirst -Attrs $wantedAttrs -Current $br }
         if ($proxyNeeded) {
