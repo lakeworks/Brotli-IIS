@@ -94,6 +94,11 @@ New-Item -ItemType Directory -Force -Path $overlayDir | Out-Null
 # Custom triplet inheriting upstream + injecting the arch-specific CL flag
 # alongside the LTO compile flag (/GL when -Lto on, empty when off).
 $archCFlags = (@($ltoCompileFlag, $archFlag) | Where-Object { $_ }) -join ' '
+# /PDBALTPATH:%_PDB% makes the DLL's debug directory name only "brotli.pdb"
+# instead of the absolute build-tree path, so a published DLL does not carry
+# the build host's directory layout. The linker expands %_PDB% itself; it is
+# DLL-linker only (lib.exe does not accept it).
+$dllLinkerFlags = (@($ltoLinkerFlag, '/PDBALTPATH:%_PDB%') | Where-Object { $_ }) -join ' '
 $tripletContent = @"
 include(`${CMAKE_CURRENT_LIST_DIR}/../vcpkg/shared.cmake)
 
@@ -119,7 +124,7 @@ set(VCPKG_CXX_FLAGS_RELEASE "$archCFlags")
 # leave a /GL-free but residual-/LTCG archive in an -Lto off build, silently
 # mislabelling the variant. Setting it explicitly makes LTO-off an authored
 # invariant rather than an emergent property of the /GL-drop on the objects.
-set(VCPKG_LINKER_FLAGS_RELEASE "$ltoLinkerFlag")
+set(VCPKG_LINKER_FLAGS_RELEASE "$dllLinkerFlags")
 set(VCPKG_STATIC_LINKER_FLAGS_RELEASE "$ltoLinkerFlag")
 
 if(PORT IN_LIST _PKG_LIBS)

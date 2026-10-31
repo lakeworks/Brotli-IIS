@@ -52,7 +52,7 @@ Register the scheme in root `applicationHost.config`.
         dynamicCompressionLevel="4" staticCompressionLevel="10" />
 ```
 
-**Levels**: brotli supports 0–11; the IIS metabase schema for `staticCompressionLevel` constrains the value to 0–10 — using 11 risks IIS rejecting the config at load time and bringing down every brotli-eligible app pool. We use 10, the highest schema-allowed value.
+**Levels**: brotli supports 0–11 and the plugin accepts the full range (`src/brotli.c`). The IIS schema on our Windows Server 2025 hosts declares `staticCompressionLevel` and `dynamicCompressionLevel` as plain `uint` with no validation range (`%windir%\system32\inetsrv\config\schema\IIS_schema.xml`, read 2026-10-31), so 11 is not rejected by the schema; level 11 has not been run in production here. We use 10 (operator 2026-10-31: "yes let's keep the default").
 
 **Caveat on `dynamicCompressionLevel`**: `dynamicCompressionLevel="4"` keeps per-request CPU modest for runtime-generated content, but brotli's cost is steeply non-linear and dynamic compression has **no size floor** — every dynamic response, tiny JSON included, pays the full encoder setup cost. Bench data shows brotli quality 9 taking tens of milliseconds on small payloads (~0.5 MB/s) — the steep upper end of the curve; quality 4 is materially cheaper but still pays the per-request encoder setup on every response. Keep `dynamicCompressionLevel` at 4 or below; prefer wiring this scheme to *static* compression (cacheable assets) and leaving dynamic responses to `gzip`, or restrict dynamic brotli to large body types via `<dynamicTypes>`. IIS has no minimum-dynamic-size key, so the quality cap is the only lever.
 
@@ -87,10 +87,11 @@ Then re-test via CDN to verify the Bunny zstd bug behavior.
 - `src/CMakeLists.txt` — upstream build config
 - `build/vcpkg/...` — vcpkg overlay (custom triplets, brotli-iis port, shared.cmake)
 - `build-x64.ps1` — our AVX2 build script (lakeworks fork)
+- `install-iis.ps1` — our installer for a prebuilt release DLL on another IIS server (lakeworks fork; `Get-Help .\install-iis.ps1 -Full`)
 
 ## Upstream relationship
 
-We track upstream `master` to stay current with brotli library security updates and supply-chain hygiene. **No local source modifications** — only the `build-x64.ps1` script and this CLAUDE.md are local additions — so that `git pull origin master` is always a clean fast-forward and any future contribution back to upstream stays trivially separable from our build/doc additions. **One exception (operator-approved 2026-10-27):** when we move the brotli library ahead of upstream, bump the `BROTLI_VERSION_*` lines in `src/CMakeLists.txt` to the library version, as upstream does with each of its own bumps, so the DLL's file version names the brotli it contains; expect a trivial conflict there when upstream next bumps.
+We track upstream `master` to stay current with brotli library security updates and supply-chain hygiene. **No local source modifications** — the local additions are the `build-x64.ps1` and `install-iis.ps1` scripts, this CLAUDE.md, `docs/` and the fork note at the top of `readme.md` — so that `git pull origin master` is always a clean fast-forward and any future contribution back to upstream stays trivially separable from our build/doc additions. **One exception (operator-approved 2026-10-27):** when we move the brotli library ahead of upstream, bump the `BROTLI_VERSION_*` lines in `src/CMakeLists.txt` to the library version, as upstream does with each of its own bumps, so the DLL's file version names the brotli it contains; expect a trivial conflict there when upstream next bumps.
 
 Updating the vcpkg submodule (the brotli library is pulled via vcpkg, not as a top-level submodule):
 
