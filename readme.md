@@ -4,7 +4,19 @@
 ---
 **Note**: After this project was created, Microsoft [released their own](https://docs.microsoft.com/en-us/iis/extensions/iis-compression/iis-compression-overview) new compression plugin for Brotli and even [borrowed my workaround](https://docs.microsoft.com/en-us/iis/extensions/iis-compression/using-iis-compression#before-iis-100-version-1803) for `Accept-Encoding` priority.  You may wish to use that plugin instead.
 
-> **lakeworks fork note.** This is the upstream `saucecontrol/Brotli-IIS` readme. For this fork's build and deployment policy see `CLAUDE.md`: build from source via `build-x64.ps1` (do **not** use the releases-page binaries; they are unsigned), and use the deployment sample in `CLAUDE.md` rather than the one below. Note that the IIS metabase schema caps `staticCompressionLevel` at `10`; a value of `11` is rejected at config load and brings down every brotli-eligible app pool.
+> **lakeworks fork note.** This is the upstream `saucecontrol/Brotli-IIS` readme. For this fork's build and deployment policy see `CLAUDE.md`: binaries are built from source via `build-x64.ps1` (do **not** use the upstream releases-page binaries; they are unsigned), and use the deployment sample in `CLAUDE.md` rather than the one below. Note that the IIS metabase schema caps `staticCompressionLevel` at `10`; a value of `11` is rejected at config load and brings down every brotli-eligible app pool.
+>
+> **Install on IIS from this fork's release.** Each release of this repository attaches the x64 AVX2 `brotli.dll` built by `build-x64.ps1` and a `SHA256SUMS` file. On the target server, in an elevated PowerShell:
+>
+> ```powershell
+> # Check what would change, then install. -ProxyFriendly lets IIS compress requests that come through a CDN or proxy.
+> .\install-iis.ps1 -DllPath .\brotli.dll -ExpectedSha256 <hash from SHA256SUMS> -ProxyFriendly -WhatIf
+> .\install-iis.ps1 -DllPath .\brotli.dll -ExpectedSha256 <hash from SHA256SUMS> -ProxyFriendly -RestartWww -VerifyUrl https://www.example.com/style.css
+> # Undo the last install:
+> .\install-iis.ps1 -Rollback -RestartWww
+> ```
+>
+> `install-iis.ps1` registers `br` ahead of `gzip`/`deflate` (dynamic level 4, static level 10 by default), keeps the previously installed DLL and an `applicationHost.config` backup, and restarts the WWW service only with `-RestartWww`. `Get-Help .\install-iis.ps1 -Full` lists every step.
 
 Brotli IIS Compression Scheme Plugin
 ====================================
