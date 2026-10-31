@@ -146,7 +146,10 @@ function Get-UndoText([object]$Br, [System.Collections.IDictionary]$Proxy, [stri
         $where = 'NOT the first scheme; this restores its settings, the full revert below restores its position'
         if ($Br.First) { $where = 'the first scheme' }
         $lines += "# Previous br entry ($where). Put its settings back:"
-        $lines += '# (If br is missing from the scheme list - an install stopped between removing and re-adding it - this command fails: use the full revert below.)'
+        if (-not $Br.First) {
+            # Only then does the install remove br and re-add it first (two appcmd commits).
+            $lines += '# (If br is missing from the scheme list - an install stopped between removing and re-adding it - this command fails: use the full revert below.)'
+        }
         $sets = @($Br.Attrs.Keys | Where-Object { $_ -ne 'name' } | ForEach-Object { Q "/[name='br'].${_}:$($Br.Attrs[$_])" })
         $lines += "$call $($sets -join ' ') /commit:apphost"
         $prevDll = [Environment]::ExpandEnvironmentVariables($Br.Attrs['dll'])
@@ -159,6 +162,8 @@ function Get-UndoText([object]$Br, [System.Collections.IDictionary]$Proxy, [stri
     $lines += ''
     $lines += '# Full revert of applicationHost.config instead (also undoes every later change by anyone):'
     $lines += "& $(Q $AppCmd) restore backup $(Q $Backup)"
+    $lines += '# Then restart the WWW service, so workers that already loaded the new DLL drop it:'
+    $lines += 'Restart-Service W3SVC -Force'
     return $lines
 }
 
