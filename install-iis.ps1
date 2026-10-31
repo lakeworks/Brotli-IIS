@@ -292,6 +292,14 @@ if (-not ($copyNeeded -or $schemeNeeded -or $proxyNeeded)) {
 }
 
 # ---------------------------------------------------------------------------- activate
+# Restart and verify only for a configuration that is now the requested one: applied by this
+# run, or already matching. A declined change set stops here, so -VerifyUrl can never certify
+# the previous DLL. (-WhatIf continues, to show the restart it would do.)
+$alreadyCurrent = -not ($copyNeeded -or $schemeNeeded -or $proxyNeeded)
+if (-not ($applied -or $alreadyCurrent -or $WhatIfPreference)) {
+    Write-Host 'The change set was declined; no restart and no verification.'
+    return
+}
 if ($RestartWww) {
     $restarted = Restart-Www
     if ($VerifyUrl) {
@@ -308,5 +316,5 @@ if ($RestartWww) {
     # <httpCompression> element attributes apply once the application pools recycle.
     Write-Host ''
     Write-Host 'The proxy settings take effect when the application pools recycle (or after a WWW service restart):'
-    Write-Host '  appcmd list apppool /xml | appcmd recycle apppool /in'
+    Write-Host "  & '$AppCmd' list apppool /xml | & '$AppCmd' recycle apppool /in"
 }
