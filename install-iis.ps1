@@ -66,6 +66,7 @@ param(
 
     [switch]$RestartWww,
 
+    [Parameter(ParameterSetName = 'Install')]
     [string]$VerifyUrl
 )
 
@@ -77,6 +78,7 @@ $AppCmd     = Join-Path $env:windir 'system32\inetsrv\appcmd.exe'
 $TargetDir  = Join-Path $env:ProgramFiles 'IIS\IIS Compression'
 $StateFile  = Join-Path $TargetDir 'brotli-iis-state.json'
 $ProxyAttrs = @('noCompressionForProxies', 'staticCompressionIgnoreHitFrequency')
+$applied    = $false   # set once a confirmed change set has been applied in full
 
 # Native exits do not throw under $ErrorActionPreference = 'Stop'; every appcmd call goes
 # through this function, which does.
@@ -145,17 +147,20 @@ function Write-State([hashtable]$State) {
     $State | ConvertTo-Json -Depth 5 | Set-Content -Path $StateFile -Encoding UTF8
 }
 
+$Curl = Join-Path $env:windir 'System32\curl.exe'
+
+# Returns $true when the service was restarted (not under -WhatIf or a declined -Confirm).
 function Restart-Www {
     if ($PSCmdlet.ShouldProcess('W3SVC', 'Restart the World Wide Web Publishing Service (brief interruption for every site)')) {
         Restart-Service -Name W3SVC -Force
         Write-Host 'W3SVC restarted.'
+        return $true
     }
+    return $false
 }
 
 function Test-BrResponse([string]$Url) {
-    $curl = Join-Path $env:windir 'System32\curl.exe'
-    if (-not (Test-Path $curl)) { Write-Warning "curl.exe not found; skipping the -VerifyUrl check."; return }
-    $headers = & $curl -sS -o NUL -D - --max-time 30 -H 'Accept-Encoding: br' $Url 2>&1
+    $headers = & $Curl -sS -o NUL -D - --max-time 30 -H 'Accept-Encoding: br' $Url 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Verification request failed (curl exit $LASTEXITCODE): $($headers -join ' ')" }
     $enc = @($headers | Where-Object { $_ -match '^\s*Content-Encoding\s*:\s*(\S+)' } | ForEach-Object { $Matches[1] }) | Select-Object -Last 1
     if ($enc -eq 'br') {
@@ -173,7 +178,31 @@ function Write-RestartNote {
     Write-Host 'or re-run this script with -RestartWww.'
 }
 
+# <httpCompression> element attributes apply once the application pools recycle; a WWW
+# service restart also does it.
+function Write-RecycleNote {
+    Write-Host ''
+    Write-Host 'The proxy settings take effect when the application pools recycle (or after a WWW service restart):'
+    Write-Host '  appcmd list apppool /xml | appcmd recycle apppool /in'
+}
+
+# Shared end of install and rollback: restart if asked, otherwise say what activates the
+# change; verify only when the running workers reflect the configuration.
+function Complete-Activation([bool]$SchemeChanged, [bool]$ProxyChanged) {
+    $restarted = $false
+    if ($RestartWww) { $restarted = Restart-Www }
+    elseif ($SchemeChanged) { Write-RestartNote }
+    elseif ($ProxyChanged) { Write-RecycleNote }
+    if (-not $VerifyUrl) { return }
+    if ($WhatIfPreference) { Write-Host 'Skipping -VerifyUrl under -WhatIf.'; return }
+    if (($SchemeChanged -or $ProxyChanged) -and -not $restarted) {
+        throw "The change was applied, but -VerifyUrl was not checked: it is not active until the WWW service restarts. Re-run with -RestartWww, or restart and run the script again."
+    }
+    Test-BrResponse $VerifyUrl
+}
+
 # ---------------------------------------------------------------------------- preflight
+if ($VerifyUrl -and -not (Test-Path $Curl)) { throw "-VerifyUrl needs $Curl, which is not present." }
 if (-not [Environment]::Is64BitOperatingSystem) { throw 'This DLL is x64; the operating system is not 64-bit.' }
 if (-not (Test-Path $AppCmd)) { throw "IIS is not installed ($AppCmd not found)." }
 
@@ -220,13 +249,13 @@ if ($PSCmdlet.ParameterSetName -eq 'Rollback') {
             Invoke-AppCmd @('set', 'config', "-section:$Section", "/${a}:$($state.PreviousProxy.$a)", '/commit:apphost') | Out-Null
         }
         Remove-Item -Path $StateFile
+        $applied = $true
     }
 
     Write-Host 'Schemes now:'
     Show-Schemes (Get-CompressionConfig)
     Write-Host "Full applicationHost.config backup kept: appcmd restore backup `"$($state.Backup)`" (reverts every later change)."
-    if ($RestartWww) { Restart-Www } else { Write-RestartNote }
-    if ($VerifyUrl) { Write-Host 'Skipping -VerifyUrl after a rollback.' }
+    Complete-Activation -SchemeChanged ($applied -and ($null -ne $previousAttrs -or $null -ne $br)) -ProxyChanged ($applied -and $proxyRestore.Count -gt 0)
     return
 }
 
@@ -333,17 +362,8 @@ if (-not ($copyNeeded -or $schemeNeeded -or $proxyNeeded)) {
         $state['Completed'] = $true
         Write-State $state
         Write-Host "Installed. To undo: .\install-iis.ps1 -Rollback -RestartWww"
+        $applied = $true
     }
 }
 
-$changed = $copyNeeded -or $schemeNeeded
-if ($RestartWww) {
-    Restart-Www
-    if ($VerifyUrl) { Test-BrResponse $VerifyUrl }
-} else {
-    if ($changed) { Write-RestartNote }
-    if ($VerifyUrl) {
-        if ($changed) { Write-Host 'Skipping -VerifyUrl: the new scheme is not active until the WWW service restarts.' }
-        else { Test-BrResponse $VerifyUrl }
-    }
-}
+Complete-Activation -SchemeChanged ($applied -and ($copyNeeded -or $schemeNeeded)) -ProxyChanged ($applied -and $proxyNeeded)
