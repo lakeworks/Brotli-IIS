@@ -6,9 +6,11 @@
 
 > **lakeworks fork note.** This is the upstream `saucecontrol/Brotli-IIS` readme. For this fork's build and deployment policy see `CLAUDE.md`: binaries are built from source via `build-x64.ps1` (do **not** use the upstream releases-page binaries; they are unsigned), and use the deployment sample in `CLAUDE.md` rather than the one below. We use static level `10`; see `CLAUDE.md` ("Levels") for why, and for what is known about `11`.
 >
-> **Install on IIS from this fork's release.** Each release of this repository attaches the x64 AVX2 `brotli.dll` built by `build-x64.ps1` and a `SHA256SUMS` file. On the target server, in an elevated PowerShell:
+> **Install on IIS from this fork's release.** Each [release of this repository](https://github.com/lakeworks/Brotli-IIS/releases) attaches the x64 AVX2 `brotli.dll` built by `build-x64.ps1`, the matching `install-iis.ps1` and a `SHA256SUMS` file. On the target server, download the three files into one folder, then in an elevated PowerShell in that folder:
 >
 > ```powershell
+> Get-FileHash .\brotli.dll, .\install-iis.ps1   # compare with SHA256SUMS
+> Unblock-File .\install-iis.ps1                  # downloaded scripts are blocked by default
 > # Check what would change, then install. -ProxyFriendly lets IIS compress requests that come through a CDN or proxy.
 > .\install-iis.ps1 -DllPath .\brotli.dll -ExpectedSha256 <hash from SHA256SUMS> -ProxyFriendly -WhatIf
 > .\install-iis.ps1 -DllPath .\brotli.dll -ExpectedSha256 <hash from SHA256SUMS> -ProxyFriendly -RestartWww -VerifyUrl https://www.example.com/style.css
@@ -16,7 +18,7 @@
 > .\install-iis.ps1 -Rollback -RestartWww
 > ```
 >
-> `install-iis.ps1` registers `br` ahead of `gzip`/`deflate` (dynamic level 4, static level 10 by default), keeps the previously installed DLL and an `applicationHost.config` backup, and restarts the WWW service only with `-RestartWww`. `Get-Help .\install-iis.ps1 -Full` lists every step.
+> `install-iis.ps1` registers `br` ahead of `gzip`/`deflate` (dynamic level 4, static level 10 by default), keeps the previously installed DLL and an `applicationHost.config` backup, and restarts the WWW service only with `-RestartWww`. `Get-Help .\install-iis.ps1 -Full` lists every step. To check a site by hand afterwards, `curl.exe -sI -H "Accept-Encoding: br" https://www.example.com/style.css` must show `Content-Encoding: br` for a compressible file larger than IIS's `minFileSizeForComp`.
 
 Brotli IIS Compression Scheme Plugin
 ====================================

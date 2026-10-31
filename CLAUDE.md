@@ -87,10 +87,11 @@ Then re-test via CDN to verify the Bunny zstd bug behavior.
 - `src/CMakeLists.txt` — upstream build config
 - `build/vcpkg/...` — vcpkg overlay (custom triplets, brotli-iis port, shared.cmake)
 - `build-x64.ps1` — our AVX2 build script (lakeworks fork)
+- `install-iis.ps1` — our installer for a prebuilt release DLL on another IIS server (lakeworks fork; `Get-Help .\install-iis.ps1 -Full`)
 
 ## Upstream relationship
 
-We track upstream `master` to stay current with brotli library security updates and supply-chain hygiene. **No local source modifications** — only the `build-x64.ps1` script and this CLAUDE.md are local additions — so that `git pull origin master` is always a clean fast-forward and any future contribution back to upstream stays trivially separable from our build/doc additions. **One exception (operator-approved 2026-10-27):** when we move the brotli library ahead of upstream, bump the `BROTLI_VERSION_*` lines in `src/CMakeLists.txt` to the library version, as upstream does with each of its own bumps, so the DLL's file version names the brotli it contains; expect a trivial conflict there when upstream next bumps.
+We track upstream `master` to stay current with brotli library security updates and supply-chain hygiene. **No local source modifications** — the local additions are the `build-x64.ps1` and `install-iis.ps1` scripts, this CLAUDE.md, `docs/` and the fork note at the top of `readme.md` — so that `git pull origin master` is always a clean fast-forward and any future contribution back to upstream stays trivially separable from our build/doc additions. **One exception (operator-approved 2026-10-27):** when we move the brotli library ahead of upstream, bump the `BROTLI_VERSION_*` lines in `src/CMakeLists.txt` to the library version, as upstream does with each of its own bumps, so the DLL's file version names the brotli it contains; expect a trivial conflict there when upstream next bumps.
 
 Updating the vcpkg submodule (the brotli library is pulled via vcpkg, not as a top-level submodule):
 
