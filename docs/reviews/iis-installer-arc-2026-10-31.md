@@ -31,6 +31,8 @@ Verbatim, 2026-10-31: "do we have an easy way to deploy Brotli compression on ot
 - No PE-machine or export-table check: the SHA-256 pin to the published checksum already fixes the exact binary, so a structural check adds code without adding a guarantee.
 - `-StaticLevel` accepts 0–11, not 0–10. The build host's `%windir%\system32\inetsrv\config\schema\IIS_schema.xml` declares `staticCompressionLevel` and `dynamicCompressionLevel` as `uint` with no validation range (read 2026-10-31), and `src/brotli.c` accepts 0–11, so CLAUDE.md's "the IIS metabase schema constrains the value to 0–10" does not hold on that host. Default stays 10 (operator 2026-10-31: "so we could change the default?", then "yes let's keep the default"); the CLAUDE.md sentence needs correcting in its own commit.
 
+- Rollback redesigned after review round 4 (three fix rounds on the rollback/activation surface each bred new Operational findings: rollback order, partial-failure state, pending activation across runs). The `-Rollback` mode and its state file are removed: the install writes an undo note before any change, whose command reinstalls the previous DLL and levels through the same install path; a full revert is `appcmd restore backup`. `-VerifyUrl` requires `-RestartWww`, so no cross-run activation tracking is needed. A br registered between other schemes is moved first (plan step 2), and no other scheme is touched.
+
 ## Out of scope
 
 URL Rewrite rule that prioritises `br` (separate open operator decision); `master` vs `production-hardening` default-branch question; ARM64/x86 builds.
@@ -44,7 +46,7 @@ Production-touching install script for a native module loaded into w3wp.exe: lan
 Review the diff `production-hardening..<target SHA>`: `install-iis.ps1` (new), `build-x64.ps1` (linker flag), `readme.md`, `CLAUDE.md` ("Levels" paragraph). The plan and constraints are in this document; the deployment rules the script must follow are in `CLAUDE.md` section "Deployment".
 
 Judge, with evidence (file:line, and Microsoft or PowerShell documentation where a claim depends on it):
-- Does `install-iis.ps1` do what its help text and this plan say, on Windows PowerShell 5.1 and PowerShell 7? Look at native-argument quoting to `appcmd.exe`, `appcmd` command syntax and exit codes, `-WhatIf`/`ShouldProcess` coverage of every change, idempotence on re-run, the state file and `-Rollback`, partial-failure states (what the server is left with if a step fails midway), and the `-VerifyUrl` check.
+- Does `install-iis.ps1` do what its help text and this plan say, on Windows PowerShell 5.1 and PowerShell 7? Look at native-argument quoting to `appcmd.exe`, `appcmd` command syntax and exit codes, `-WhatIf`/`ShouldProcess` coverage of every change, idempotence on re-run, the undo note and whether its command really restores the previous configuration, partial-failure states (what the server is left with if a step fails midway), and the `-VerifyUrl` check.
 - Can it damage an IIS server's configuration: other schemes, MIME tables, site settings, a DLL in use?
 - Does `/PDBALTPATH:%_PDB%` reach the DLL link step through the vcpkg triplet and remove the build path from the DLL, without affecting the static-library archiver?
 - Is every factual claim in the changed documentation correct?
