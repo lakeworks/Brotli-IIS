@@ -202,7 +202,10 @@ if ($PSCmdlet.ParameterSetName -eq 'Rollback') {
 
 # ---------------------------------------------------------------------------- install
 # PF_AVX2_INSTRUCTIONS_AVAILABLE = 40. An AVX2-less CPU would crash w3wp.exe on load.
-Add-Type -Namespace BrotliIis -Name Cpu -MemberDefinition '[DllImport("kernel32.dll")] public static extern bool IsProcessorFeaturePresent(uint feature);'
+if (-not ('BrotliIis.Cpu' -as [type])) {
+    # A second run in the same PowerShell session would otherwise fail: the type already exists.
+    Add-Type -Namespace BrotliIis -Name Cpu -MemberDefinition '[DllImport("kernel32.dll")] public static extern bool IsProcessorFeaturePresent(uint feature);'
+}
 if (-not [BrotliIis.Cpu]::IsProcessorFeaturePresent(40)) {
     throw 'This CPU (or VM CPU model) does not report AVX2; the DLL is built with /arch:AVX2 and would crash w3wp.exe.'
 }
