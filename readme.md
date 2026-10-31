@@ -14,11 +14,9 @@
 > # Check what would change, then install. -ProxyFriendly lets IIS compress requests that come through a CDN or proxy.
 > .\install-iis.ps1 -DllPath .\brotli.dll -ExpectedSha256 <hash from SHA256SUMS> -ProxyFriendly -WhatIf
 > .\install-iis.ps1 -DllPath .\brotli.dll -ExpectedSha256 <hash from SHA256SUMS> -ProxyFriendly -RestartWww -VerifyUrl https://www.example.com/style.css
-> # Undo the last install:
-> .\install-iis.ps1 -Rollback -RestartWww
 > ```
 >
-> `install-iis.ps1` registers `br` ahead of `gzip`/`deflate` (dynamic level 4, static level 10 by default), keeps the previously installed DLL and an `applicationHost.config` backup, and restarts the WWW service only with `-RestartWww`. `Get-Help .\install-iis.ps1 -Full` lists every step. To check a site by hand afterwards, `curl.exe -sI -H "Accept-Encoding: br" https://www.example.com/style.css` must show `Content-Encoding: br` for a compressible file larger than IIS's `minFileSizeForComp`.
+> `install-iis.ps1` registers `br` ahead of `gzip`/`deflate` (dynamic level 4, static level 10 by default), keeps the previously installed DLL and an `applicationHost.config` backup, and restarts the WWW service only with `-RestartWww`. Before changing anything it saves an undo note next to the DLLs (`brotli-iis-undo-<timestamp>.txt`) with the exact command that reinstalls the previous DLL and settings, and prints it at the end. `Get-Help .\install-iis.ps1 -Full` lists every step. To check a site by hand afterwards, `curl.exe -sI -H "Accept-Encoding: br" https://www.example.com/style.css` must show `Content-Encoding: br` for a compressible file larger than IIS's `minFileSizeForComp`.
 
 Brotli IIS Compression Scheme Plugin
 ====================================
