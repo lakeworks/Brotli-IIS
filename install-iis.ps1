@@ -7,19 +7,21 @@
     Deploys a prebuilt brotli.dll (no build on the target). Runs on Windows PowerShell 5.1
     and PowerShell 7. IIS configuration changes go through appcmd.exe; the DLL copy, the undo
     note and the service restart are the only other changes. -WhatIf lists the changes and
-    makes none; -Confirm asks once for the whole change set.
+    makes none; -Confirm asks once for the whole configuration change set, and once more
+    for the service restart when -RestartWww is given.
 
       1. Preflight: 64-bit OS, IIS present, static + dynamic compression modules present,
          CPU reports AVX2 (the DLL is built with /arch:AVX2), DLL SHA-256 = -ExpectedSha256,
          and curl.exe present when -VerifyUrl is given.
       2. appcmd backup of applicationHost.config, named brotli-iis-<timestamp>.
       3. Undo note brotli-iis-undo-<timestamp>.txt next to the DLLs, written before any
-         configuration change: the exact command that puts the previous br scheme back (by
-         installing the previous DLL with this script), the previous proxy attributes, and
-         the backup to restore for a full revert.
+         configuration change: PowerShell commands, runnable from any directory, that put
+         the previous br entry's settings back (pointing at the previous DLL file), set the
+         previous proxy attributes and restart the service, plus the backup to restore for a
+         full revert (which also restores br's previous position).
       4. Copy the DLL to %ProgramFiles%\IIS\IIS Compression\brotli-<major.minor.patch>.dll
          (a versioned name, because w3wp.exe keeps a loaded DLL locked; the previous file
-         stays in place, which is what the undo command installs again).
+         stays in place, which is what the undo commands point at again).
       5. Register or repoint the "br" scheme as the FIRST scheme, so it precedes gzip/deflate
          (IIS 10 1803+ uses registration order to break ties between equal q-values). An
          existing br entry keeps its other attributes (doStaticCompression, ...).
@@ -128,29 +130,34 @@ function Set-BrSchemeFirst([System.Collections.IDictionary]$Attrs, [object]$Curr
     Invoke-AppCmd @('set', 'config', "-section:$Section", "/+[@start,$list]", '/commit:apphost') | Out-Null
 }
 
-# The undo note: what to run to get the configuration this install replaces.
+# The undo note: PowerShell commands, runnable from any directory (appcmd.exe is not on PATH
+# by default, so it is called by full path), that put back the configuration this install
+# replaces. The previous br entry is restored attribute by attribute, so it points at the
+# preserved DLL file whatever its name or version.
 function Get-UndoText([object]$Br, [System.Collections.IDictionary]$Proxy, [string]$Backup) {
-    $lines = @("brotli-iis undo note, written $(Get-Date -Format 's') before backup $Backup was applied over.", '')
+    # PowerShell single-quoted literal: nothing in a value ($, backtick) is interpreted.
+    function Q([string]$s) { return "'" + $s.Replace("'", "''") + "'" }
+    $call = "& $(Q $AppCmd) set config $(Q "-section:$Section")"
+    $lines = @("# brotli-iis undo note, written $(Get-Date -Format 's') with appcmd backup $Backup. Run in an elevated PowerShell.", '')
     if ($null -eq $Br) {
-        $lines += 'br was not registered before. To remove it, then restart the WWW service:'
-        $lines += "  appcmd set config -section:$Section /-[name='br'] /commit:apphost"
+        $lines += '# br was not registered before. Remove it:'
+        $lines += "$call $(Q "/-[name='br']") /commit:apphost"
     } else {
+        $where = 'NOT the first scheme; this restores its settings, the full revert below restores its position'
+        if ($Br.First) { $where = 'the first scheme' }
+        $lines += "# Previous br entry ($where). Put its settings back:"
+        $sets = @($Br.Attrs.Keys | Where-Object { $_ -ne 'name' } | ForEach-Object { Q "/[name='br'].${_}:$($Br.Attrs[$_])" })
+        $lines += "$call $($sets -join ' ') /commit:apphost"
         $prevDll = [Environment]::ExpandEnvironmentVariables($Br.Attrs['dll'])
-        $lines += "Previous br scheme: dll=$($Br.Attrs['dll']) dynamic=$($Br.Attrs['dynamicCompressionLevel']) static=$($Br.Attrs['staticCompressionLevel']) first=$($Br.First)"
-        if (Test-Path -LiteralPath $prevDll) {
-            $prevHash = (Get-FileHash -LiteralPath $prevDll -Algorithm SHA256).Hash
-            $lines += 'To put it back (this script, previous DLL; it is registered first):'
-            $lines += "  .\install-iis.ps1 -DllPath '$prevDll' -ExpectedSha256 $prevHash -DynamicLevel $($Br.Attrs['dynamicCompressionLevel']) -StaticLevel $($Br.Attrs['staticCompressionLevel']) -RestartWww"
-        } else {
-            $lines += "The previous DLL file $prevDll is missing; use the full revert below."
-        }
+        if (-not (Test-Path -LiteralPath $prevDll)) { $lines += "# WARNING: the previous DLL file $prevDll is missing; use the full revert below." }
     }
+    $lines += '# Previous proxy attributes (only needed if -ProxyFriendly changed them):'
+    $lines += "$call $((@($Proxy.Keys) | ForEach-Object { Q "/${_}:$($Proxy[$_])" }) -join ' ') /commit:apphost"
+    $lines += '# Then restart the WWW service so the workers load the previous DLL (a brief interruption for every site):'
+    $lines += 'Restart-Service W3SVC -Force'
     $lines += ''
-    $lines += 'Previous proxy attributes, to set back by hand if -ProxyFriendly changed them:'
-    $lines += ('  appcmd set config -section:' + $Section + ' ' + ((@($Proxy.Keys) | ForEach-Object { "/${_}:$($Proxy[$_])" }) -join ' ') + ' /commit:apphost')
-    $lines += ''
-    $lines += 'Full revert of applicationHost.config (also undoes every later change by anyone):'
-    $lines += "  appcmd restore backup `"$Backup`""
+    $lines += '# Full revert of applicationHost.config instead (also undoes every later change by anyone):'
+    $lines += "& $(Q $AppCmd) restore backup $(Q $Backup)"
     return $lines
 }
 
