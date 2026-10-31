@@ -31,11 +31,15 @@
     script restarts the service (or the host reboots), later runs keep reporting the restart
     as pending and -VerifyUrl refuses to check.
 
-    Rollback: restores the "br" scheme (attributes and position, or removes it if the install
-    added it) and the two -ProxyFriendly attributes recorded by the last install that changed
-    something, then checks the scheme order; the state file is removed only when it matches.
-    Restoring a middle position moves the schemes that followed br back to the end, in their
-    previous order, with their current attributes. Other configuration is left alone. The full
+    The script touches only the "br" entry; if br sits between other schemes it refuses (fix
+    the order by hand first), because appcmd can place an entry only first or last.
+
+    Rollback: restores the "br" scheme (attributes and first/last position, or removes it if
+    the install added it) and the two -ProxyFriendly attributes recorded by the last install
+    that changed something, then checks that the scheme order equals the recorded one. The
+    state file stays, marked rolled back, until the restored scheme is active; running
+    -Rollback again then only restarts (with -RestartWww) or reports the pending restart.
+    Other configuration is left alone. The full
     applicationHost.config backup is also kept; its restore command is printed.
 
 .EXAMPLE
@@ -250,6 +254,13 @@ if ($PSCmdlet.ParameterSetName -eq 'Rollback') {
     $state  = Get-Content -Raw -Path $StateFile | ConvertFrom-Json
     $config = Get-CompressionConfig
     $br     = Get-BrScheme $config
+    if ($state.PSObject.Properties['RolledBack'] -and $state.RolledBack) {
+        # The configuration was already restored; only the activation may still be pending.
+        Write-Host "Already rolled back (backup $($state.Backup)); nothing to change."
+        Show-Schemes $config
+        Complete-Activation -SchemeChanged $false -ProxyChanged $false
+        return
+    }
     Write-Host "Rolling back to the configuration recorded before backup $($state.Backup)."
 
     $previousAttrs = $null
@@ -262,42 +273,33 @@ if ($PSCmdlet.ParameterSetName -eq 'Rollback') {
     if ($null -ne $previousAttrs) { $plan += "restore br (dll=$($previousAttrs['dll'])) at its previous position ($($state.PreviousBr.Position))" }
     elseif ($null -ne $br) { $plan += 'remove br (absent before the install)' }
     foreach ($a in $proxyRestore) { $plan += "set $a back to '$($state.PreviousProxy.$a)'" }
-    $plan += 'remove the install state file'
+    $plan += 'mark the state file rolled back (restart pending)'
+    $position = 'start'
+    if ($null -ne $previousAttrs) {
+        $position = $state.PreviousBr.Position
+        # The install refuses a middle br, so a middle position here means a damaged state file.
+        if ($position -ne 'start' -and $position -ne 'end') { throw "Recorded br position '$position' cannot be restored; restore with appcmd restore backup `"$($state.Backup)`"." }
+    }
 
-    # One confirmation for the whole rollback; the state file goes only after every step succeeded.
+    # One confirmation for the whole rollback. Only the br entry and the two proxy attributes
+    # are touched; the scheme order is then compared with the one recorded before the install.
     if ($PSCmdlet.ShouldProcess($Section, ($plan -join '; '))) {
         if ($null -ne $previousAttrs) {
-            $position = $state.PreviousBr.Position
-            if ($position -eq 'middle') { $position = 'end' }
             Set-BrScheme -Attrs $previousAttrs -Position $position -Current $br
-            if ($state.PreviousBr.Position -eq 'middle') {
-                # appcmd names only @start and @end, so rebuild the middle position: every scheme
-                # that followed br is moved back to the end, in its previous order, with all its
-                # current attributes.
-                $previousOrder = @($state.PreviousOrder)
-                $current = Get-CompressionConfig
-                foreach ($name in $previousOrder[([array]::IndexOf($previousOrder, 'br') + 1)..($previousOrder.Count - 1)]) {
-                    $scheme = @($current.Schemes | Where-Object { $_.Name -eq $name }) | Select-Object -First 1
-                    if ($null -eq $scheme) { continue }
-                    $list = (@($scheme.Attrs.Keys) | ForEach-Object { "$_='$($scheme.Attrs[$_])'" }) -join ','
-                    if (@($scheme.Attrs.Values | Where-Object { "$_".Contains("'") }).Count -gt 0) { throw "Scheme $name has an attribute value with a single quote; restore the order by hand: $($previousOrder -join ', ')" }
-                    Invoke-AppCmd @('set', 'config', "-section:$Section", "/-[name='$name']", '/commit:apphost') | Out-Null
-                    Invoke-AppCmd @('set', 'config', "-section:$Section", "/+[@end,$list]", '/commit:apphost') | Out-Null
-                }
-            }
-            $now = @((Get-CompressionConfig).Schemes | ForEach-Object { $_.Name })
-            $expected = @($state.PreviousOrder | Where-Object { $now -contains $_ })
-            $nowKnown = (@($now | Where-Object { $expected -contains $_ })) -join ','
-            if ($nowKnown -ne ($expected -join ',')) {
-                throw "Scheme order after rollback is $($now -join ', '), expected $($expected -join ', '). The state file is kept."
-            }
         } elseif ($null -ne $br) {
             Invoke-AppCmd @('set', 'config', "-section:$Section", "/-[name='br']", '/commit:apphost') | Out-Null
         }
         foreach ($a in $proxyRestore) {
             Invoke-AppCmd @('set', 'config', "-section:$Section", "/${a}:$($state.PreviousProxy.$a)", '/commit:apphost') | Out-Null
         }
-        Remove-Item -Path $StateFile -Confirm:$false
+        $now = (@((Get-CompressionConfig).Schemes | ForEach-Object { $_.Name })) -join ', '
+        $expected = (@($state.PreviousOrder)) -join ', '
+        if ($now -ne $expected) {
+            throw "Scheme order after rollback is '$now', expected '$expected'. The state file is kept; fix by hand or appcmd restore backup `"$($state.Backup)`"."
+        }
+        # Keep the file until the restored scheme is active, so a later run still sees the
+        # pending restart and a repeated -Rollback only completes the activation.
+        Write-State @{ Backup = $state.Backup; RolledBack = $true; Completed = $true; ActivationPending = $true; ChangedAt = (Get-Date).ToUniversalTime().ToString('o') }
         $applied = $true
     }
 
@@ -344,6 +346,12 @@ if (Test-Path -LiteralPath $target) {
     $copyNeeded = $false
 }
 
+# appcmd can place an entry only at @start or @end, so a rollback could not put a middle br
+# back without moving other schemes. Refuse instead of touching them.
+if ($null -ne $br -and $br.Position -eq 'middle') {
+    throw ('br is registered between other schemes (' + (@($config.Schemes | ForEach-Object { $_.Name }) -join ', ') + '). Move it first or last by hand, then run the script again.')
+}
+
 # The wanted br scheme: the existing one's attributes (doStaticCompression,
 # doDynamicCompression, ...) with the DLL and levels replaced, or a new entry with IIS defaults.
 $wantedAttrs = [ordered]@{ name = 'br' }
@@ -359,6 +367,15 @@ $proxyNeeded = $ProxyFriendly -and @($ProxyAttrs | Where-Object { $config.Proxy[
 
 if (-not ($copyNeeded -or $schemeNeeded -or $proxyNeeded)) {
     Write-Host 'Already installed with these settings; nothing to change.'
+    if (Test-Path $StateFile) {
+        # An earlier install that stopped after its last configuration change: the configuration
+        # now matches, so mark it finished (its baseline and pending restart are kept).
+        $old = Get-Content -Raw -Path $StateFile | ConvertFrom-Json
+        if ($old.PSObject.Properties['Completed'] -and -not $old.Completed -and -not $WhatIfPreference) {
+            $old.Completed = $true
+            $old | ConvertTo-Json -Depth 5 | Set-Content -Path $StateFile -Encoding UTF8 -Confirm:$false
+        }
+    }
 } else {
     $backup = 'brotli-iis-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
 
@@ -380,6 +397,10 @@ if (-not ($copyNeeded -or $schemeNeeded -or $proxyNeeded)) {
     }
     $state['Installed'] = $target
     $state['Completed'] = $false
+    # Pending from the first write on: a run that stops after a change but before the end
+    # still leaves the restart recorded as pending.
+    $state['ActivationPending'] = $true
+    $state['ChangedAt'] = (Get-Date).ToUniversalTime().ToString('o')
 
     $plan = @("appcmd backup $backup", "record the rollback baseline in $StateFile")
     if ($copyNeeded)   { $plan += "copy the DLL to $target" }
@@ -410,7 +431,6 @@ if (-not ($copyNeeded -or $schemeNeeded -or $proxyNeeded)) {
         }
         $state['Completed'] = $true
         $state['ChangedAt'] = (Get-Date).ToUniversalTime().ToString('o')
-        $state['ActivationPending'] = $true
         Write-State $state
         Write-Host "Installed. To undo: .\install-iis.ps1 -Rollback -RestartWww"
         $applied = $true
