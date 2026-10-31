@@ -29,9 +29,11 @@
     A scheme dll or level change takes effect only after a WWW service restart (Microsoft
     scheme reference); -RestartWww does it, otherwise the commands are printed.
 
-    Rollback: restores the "br" scheme (attributes and first/last position, or removes it if
-    the install added it) and the two -ProxyFriendly attributes recorded by the last install
-    that changed something. Other configuration is left alone. The full
+    Rollback: restores the "br" scheme (attributes and position, or removes it if the install
+    added it) and the two -ProxyFriendly attributes recorded by the last install that changed
+    something, then checks the scheme order; the state file is removed only when it matches.
+    Restoring a middle position moves the schemes that followed br back to the end, in their
+    previous order, with their current attributes. Other configuration is left alone. The full
     applicationHost.config backup is also kept; its restore command is printed.
 
 .EXAMPLE
@@ -240,11 +242,29 @@ if ($PSCmdlet.ParameterSetName -eq 'Rollback') {
     if ($PSCmdlet.ShouldProcess($Section, ($plan -join '; '))) {
         if ($null -ne $previousAttrs) {
             $position = $state.PreviousBr.Position
-            if ($position -eq 'middle') {
-                Write-Warning ('br was neither first nor last before the install; it is restored last. Previous scheme order: ' + ($state.PreviousOrder -join ', '))
-                $position = 'end'
-            }
+            if ($position -eq 'middle') { $position = 'end' }
             Set-BrScheme -Attrs $previousAttrs -Position $position -Current $br
+            if ($state.PreviousBr.Position -eq 'middle') {
+                # appcmd names only @start and @end, so rebuild the middle position: every scheme
+                # that followed br is moved back to the end, in its previous order, with all its
+                # current attributes.
+                $previousOrder = @($state.PreviousOrder)
+                $current = Get-CompressionConfig
+                foreach ($name in $previousOrder[([array]::IndexOf($previousOrder, 'br') + 1)..($previousOrder.Count - 1)]) {
+                    $scheme = @($current.Schemes | Where-Object { $_.Name -eq $name }) | Select-Object -First 1
+                    if ($null -eq $scheme) { continue }
+                    $list = (@($scheme.Attrs.Keys) | ForEach-Object { "$_='$($scheme.Attrs[$_])'" }) -join ','
+                    if (@($scheme.Attrs.Values | Where-Object { "$_".Contains("'") }).Count -gt 0) { throw "Scheme $name has an attribute value with a single quote; restore the order by hand: $($previousOrder -join ', ')" }
+                    Invoke-AppCmd @('set', 'config', "-section:$Section", "/-[name='$name']", '/commit:apphost') | Out-Null
+                    Invoke-AppCmd @('set', 'config', "-section:$Section", "/+[@end,$list]", '/commit:apphost') | Out-Null
+                }
+            }
+            $now = @((Get-CompressionConfig).Schemes | ForEach-Object { $_.Name })
+            $expected = @($state.PreviousOrder | Where-Object { $now -contains $_ })
+            $nowKnown = (@($now | Where-Object { $expected -contains $_ })) -join ','
+            if ($nowKnown -ne ($expected -join ',')) {
+                throw "Scheme order after rollback is $($now -join ', '), expected $($expected -join ', '). The state file is kept."
+            }
         } elseif ($null -ne $br) {
             Invoke-AppCmd @('set', 'config', "-section:$Section", "/-[name='br']", '/commit:apphost') | Out-Null
         }
