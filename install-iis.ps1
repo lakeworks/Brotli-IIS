@@ -143,8 +143,10 @@ function Set-BrScheme([System.Collections.IDictionary]$Attrs, [string]$Position,
 }
 
 function Write-State([hashtable]$State) {
-    New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
-    $State | ConvertTo-Json -Depth 5 | Set-Content -Path $StateFile -Encoding UTF8
+    # -Confirm:$false here and below: these run only inside an already-approved change set,
+    # and a second, nested prompt could otherwise skip a step the next ones depend on.
+    New-Item -ItemType Directory -Force -Path $TargetDir -Confirm:$false | Out-Null
+    $State | ConvertTo-Json -Depth 5 | Set-Content -Path $StateFile -Encoding UTF8 -Confirm:$false
 }
 
 $Curl = Join-Path $env:windir 'System32\curl.exe'
@@ -152,7 +154,8 @@ $Curl = Join-Path $env:windir 'System32\curl.exe'
 # Returns $true when the service was restarted (not under -WhatIf or a declined -Confirm).
 function Restart-Www {
     if ($PSCmdlet.ShouldProcess('W3SVC', 'Restart the World Wide Web Publishing Service (brief interruption for every site)')) {
-        Restart-Service -Name W3SVC -Force
+        Restart-Service -Name W3SVC -Force -Confirm:$false
+        if ((Get-Service -Name W3SVC).Status -ne 'Running') { throw 'W3SVC is not running after the restart.' }
         Write-Host 'W3SVC restarted.'
         return $true
     }
@@ -248,7 +251,7 @@ if ($PSCmdlet.ParameterSetName -eq 'Rollback') {
         foreach ($a in $proxyRestore) {
             Invoke-AppCmd @('set', 'config', "-section:$Section", "/${a}:$($state.PreviousProxy.$a)", '/commit:apphost') | Out-Null
         }
-        Remove-Item -Path $StateFile
+        Remove-Item -Path $StateFile -Confirm:$false
         $applied = $true
     }
 
@@ -344,7 +347,7 @@ if (-not ($copyNeeded -or $schemeNeeded -or $proxyNeeded)) {
         Write-State $state
         Write-Host "Backup: $backup. If a later step fails: .\install-iis.ps1 -Rollback (or appcmd restore backup `"$backup`")."
         if ($copyNeeded) {
-            Copy-Item -LiteralPath $source -Destination $target
+            Copy-Item -LiteralPath $source -Destination $target -Confirm:$false
             if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $hash) { throw "Copied file $target does not match the verified SHA-256." }
         }
         if ($schemeNeeded) { Set-BrScheme -Attrs $wantedAttrs -Position 'start' -Current $br }
