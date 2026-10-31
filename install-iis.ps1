@@ -152,8 +152,8 @@ function Get-UndoText([object]$Br, [System.Collections.IDictionary]$Proxy, [stri
         }
         $sets = @($Br.Attrs.Keys | Where-Object { $_ -ne 'name' } | ForEach-Object { Q "/[name='br'].${_}:$($Br.Attrs[$_])" })
         $lines += "$call $($sets -join ' ') /commit:apphost"
-        $prevDll = [Environment]::ExpandEnvironmentVariables($Br.Attrs['dll'])
-        if (-not (Test-Path -LiteralPath $prevDll)) { $lines += "# WARNING: the previous DLL file $prevDll is missing; use the full revert below." }
+        $prevDll = [Environment]::ExpandEnvironmentVariables("$($Br.Attrs['dll'])")
+        if ($prevDll -eq '' -or -not (Test-Path -LiteralPath $prevDll)) { $lines += "# WARNING: the previous DLL file $prevDll is missing; use the full revert below." }
     }
     $lines += '# Previous proxy attributes (only needed if -ProxyFriendly changed them):'
     $lines += "$call $((@($Proxy.Keys) | ForEach-Object { Q "/${_}:$($Proxy[$_])" }) -join ' ') /commit:apphost"
@@ -193,6 +193,9 @@ function Test-BrResponse([string]$Url) {
 if ($VerifyUrl -and -not $RestartWww) { throw '-VerifyUrl requires -RestartWww: without a restart the workers may still run the previous DLL.' }
 if ($VerifyUrl -and -not (Test-Path $Curl)) { throw "-VerifyUrl needs $Curl, which is not present." }
 if (-not [Environment]::Is64BitOperatingSystem) { throw 'This DLL is x64; the operating system is not 64-bit.' }
+# A 32-bit PowerShell on a 64-bit host sees %ProgramFiles% as "Program Files (x86)" and the
+# 32-bit system32\inetsrv: it would install into the wrong place.
+if (-not [Environment]::Is64BitProcess) { throw 'Run this script from a 64-bit PowerShell (not the "(x86)" one).' }
 if (-not (Test-Path $AppCmd)) { throw "IIS is not installed ($AppCmd not found)." }
 
 [xml]$modulesXml = (Invoke-AppCmd @('list', 'config', '-section:system.webServer/globalModules', '/xml')) -join "`n"
